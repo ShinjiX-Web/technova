@@ -24,7 +24,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; needsOtp?: boolean; error?: string }>
   signup: (name: string, email: string, password: string) => Promise<{ success: boolean; needsOtp?: boolean; error?: string }>
   verifyOtp: (code: string) => Promise<boolean>
-  resendOtp: () => void
+  resendOtp: () => Promise<void>
   cancelOtp: () => void
   logout: () => void
   loginWithGoogle: () => Promise<{ success: boolean; error?: string }>
@@ -40,6 +40,29 @@ const USERS_KEY = "auth_users"
 // Generate a random 6-digit OTP
 function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString()
+}
+
+// Send OTP email via API
+async function sendOtpEmail(email: string, otp: string, type: "login" | "signup"): Promise<boolean> {
+  try {
+    const response = await fetch('/api/auth/send-otp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, otp, type }),
+    });
+
+    if (!response.ok) {
+      console.error('Failed to send OTP email');
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error sending OTP email:', error);
+    return false;
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -61,9 +84,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = async (email: string, password: string): Promise<{ success: boolean; needsOtp?: boolean; error?: string }> => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
     // Get stored users
     const usersJson = localStorage.getItem(USERS_KEY)
     const users: Array<User & { password: string }> = usersJson ? JSON.parse(usersJson) : []
@@ -74,14 +94,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (foundUser) {
       // Generate OTP and set pending auth
       const otpCode = generateOtp()
+
+      // Send OTP email
+      const emailSent = await sendOtpEmail(email, otpCode, "login")
+      if (!emailSent) {
+        return { success: false, error: "Failed to send verification email. Please try again." }
+      }
+
       setPendingAuth({
         type: "login",
         email,
         password,
         otpCode,
       })
-      // Log the OTP to console for demo purposes
-      console.log(`🔐 OTP Code for ${email}: ${otpCode}`)
       return { success: true, needsOtp: true }
     }
 
@@ -89,9 +114,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signup = async (name: string, email: string, password: string): Promise<{ success: boolean; needsOtp?: boolean; error?: string }> => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
     // Get stored users
     const usersJson = localStorage.getItem(USERS_KEY)
     const users: Array<User & { password: string }> = usersJson ? JSON.parse(usersJson) : []
@@ -103,6 +125,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Generate OTP and set pending auth
     const otpCode = generateOtp()
+
+    // Send OTP email
+    const emailSent = await sendOtpEmail(email, otpCode, "signup")
+    if (!emailSent) {
+      return { success: false, error: "Failed to send verification email. Please try again." }
+    }
+
     setPendingAuth({
       type: "signup",
       email,
@@ -110,8 +139,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
       otpCode,
     })
-    // Log the OTP to console for demo purposes
-    console.log(`🔐 OTP Code for ${email}: ${otpCode}`)
     return { success: true, needsOtp: true }
   }
 
@@ -160,11 +187,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return true
   }
 
-  const resendOtp = () => {
+  const resendOtp = async () => {
     if (pendingAuth) {
       const newOtp = generateOtp()
-      setPendingAuth({ ...pendingAuth, otpCode: newOtp })
-      console.log(`🔐 New OTP Code for ${pendingAuth.email}: ${newOtp}`)
+
+      // Send new OTP email
+      const emailSent = await sendOtpEmail(pendingAuth.email, newOtp, pendingAuth.type)
+      if (emailSent) {
+        setPendingAuth({ ...pendingAuth, otpCode: newOtp })
+      }
     }
   }
 
