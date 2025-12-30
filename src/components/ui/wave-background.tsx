@@ -38,8 +38,8 @@ const particleFragmentDark = `
 
 export function WaveBackground({ className }: WaveBackgroundProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const animationRef = useRef<number>()
-  const rendererRef = useRef<THREE.WebGLRenderer>()
+  const animationRef = useRef<number>(undefined)
+  const rendererRef = useRef<THREE.WebGLRenderer>(undefined)
   const [theme, setTheme] = useState(() =>
     document.documentElement.classList.contains("dark") ? "dark" : "light"
   )
