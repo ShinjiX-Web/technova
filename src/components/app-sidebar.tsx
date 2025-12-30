@@ -159,8 +159,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       background: document.documentElement.classList.contains("dark") ? "#171717" : "#ffffff",
       color: document.documentElement.classList.contains("dark") ? "#ffffff" : "#171717",
     })
-    logout()
+    // Navigate first, then logout to prevent ProtectedRoute from redirecting to /login
     navigate("/")
+    logout()
   }
 
   // Use authenticated user data or fallback to demo data

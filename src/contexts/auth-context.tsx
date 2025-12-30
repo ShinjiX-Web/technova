@@ -25,6 +25,8 @@ interface AuthContextType {
   resendOtp: () => void
   cancelOtp: () => void
   logout: () => void
+  loginWithGoogle: () => Promise<{ success: boolean; error?: string }>
+  loginWithGitHub: () => Promise<{ success: boolean; error?: string }>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -172,6 +174,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(STORAGE_KEY)
   }
 
+  // OAuth login with Google
+  // In production, this would redirect to Google OAuth flow
+  // For now, it's a placeholder that simulates the flow
+  const loginWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
+    // TODO: Implement actual Google OAuth flow
+    // Example production implementation:
+    // window.location.href = `${API_URL}/auth/google`
+    // The callback would then set the user in localStorage
+
+    console.log("🔐 Google OAuth: In production, this would redirect to Google OAuth")
+    return { success: false, error: "Google OAuth not configured. Please set up Google OAuth credentials." }
+  }
+
+  // OAuth login with GitHub
+  // In production, this would redirect to GitHub OAuth flow
+  const loginWithGitHub = async (): Promise<{ success: boolean; error?: string }> => {
+    // TODO: Implement actual GitHub OAuth flow
+    // Example production implementation:
+    // window.location.href = `${API_URL}/auth/github`
+    // The callback would then set the user in localStorage
+
+    console.log("🔐 GitHub OAuth: In production, this would redirect to GitHub OAuth")
+    return { success: false, error: "GitHub OAuth not configured. Please set up GitHub OAuth credentials." }
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -185,6 +212,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         resendOtp,
         cancelOtp,
         logout,
+        loginWithGoogle,
+        loginWithGitHub,
       }}
     >
       {children}
