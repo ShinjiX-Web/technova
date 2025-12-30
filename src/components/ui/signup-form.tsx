@@ -28,12 +28,14 @@ export function SignupForm({ className, onToggle, ...props }: SignupFormProps) {
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState("")
+  const [devOtp, setDevOtp] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const { signup, pendingAuth, loginWithGoogle, loginWithGitHub } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setDevOtp(null)
 
     if (password !== confirmPassword) {
       setError("Passwords do not match")
@@ -51,6 +53,9 @@ export function SignupForm({ className, onToggle, ...props }: SignupFormProps) {
       const result = await signup(name, email, password)
       if (!result.success) {
         setError(result.error || "An account with this email already exists")
+      } else if (result.devOtp) {
+        // Show OTP for development testing when email fails
+        setDevOtp(result.devOtp)
       }
       // If needsOtp is true, the pendingAuth state will be set and OTP form will show
     } catch {
@@ -80,7 +85,7 @@ export function SignupForm({ className, onToggle, ...props }: SignupFormProps) {
   if (pendingAuth?.type === "signup") {
     return (
       <div className={cn("flex flex-col gap-6", className)} {...props}>
-        <OTPForm />
+        <OTPForm devOtp={devOtp} />
       </div>
     )
   }

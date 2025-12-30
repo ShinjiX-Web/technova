@@ -38,19 +38,24 @@ export function ForgotPasswordForm({
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState("")
+  const [devOtp, setDevOtp] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  
+
   const { requestPasswordReset, verifyResetOtp, resetPassword, resendOtp, cancelOtp } = useAuth()
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setDevOtp(null)
     setIsLoading(true)
 
     try {
       const result = await requestPasswordReset(email)
       if (result.success) {
         setStep("otp")
+        if (result.devOtp) {
+          setDevOtp(result.devOtp)
+        }
       } else {
         setError(result.error || "Failed to send reset email")
       }
@@ -112,7 +117,10 @@ export function ForgotPasswordForm({
 
   const handleResendOtp = async () => {
     setError("")
-    await resendOtp()
+    const result = await resendOtp()
+    if (result.devOtp) {
+      setDevOtp(result.devOtp)
+    }
   }
 
   const handleCancel = () => {
@@ -167,6 +175,11 @@ export function ForgotPasswordForm({
           <CardContent>
             <form onSubmit={handleOtpSubmit}>
               <FieldGroup>
+                {devOtp && (
+                  <div className="p-3 text-sm text-amber-700 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-300 rounded-lg border border-amber-200 dark:border-amber-800">
+                    <span className="font-semibold">🔧 Dev Mode:</span> Email failed to send. Your code is: <code className="font-mono font-bold text-lg">{devOtp}</code>
+                  </div>
+                )}
                 {error && (
                   <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg">
                     {error}

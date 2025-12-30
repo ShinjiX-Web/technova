@@ -7,8 +7,16 @@ export default async function handler(req, res) {
 
   const { email, otp, type } = req.body;
 
+  console.log('📧 OTP email request:', { email, type, hasOtp: !!otp });
+
   if (!email || !otp) {
     return res.status(400).json({ error: 'Email and OTP are required' });
+  }
+
+  // Check if RESEND_API_KEY is configured
+  if (!process.env.RESEND_API_KEY) {
+    console.error('RESEND_API_KEY is not configured');
+    return res.status(500).json({ error: 'Email service not configured' });
   }
 
   try {
@@ -69,14 +77,23 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error('Resend error:', data);
-      return res.status(500).json({ error: 'Failed to send email', details: data });
+      console.error('Resend error:', response.status, data);
+      // Return more detailed error for debugging
+      const errorMessage = data.message || data.error || 'Failed to send email';
+      return res.status(500).json({
+        error: errorMessage,
+        details: data,
+        hint: response.status === 403
+          ? 'Free tier can only send to your registered email. Add a custom domain in Resend to send to others.'
+          : undefined
+      });
     }
 
+    console.log('✅ Email sent successfully:', data.id);
     return res.status(200).json({ success: true, messageId: data.id });
   } catch (error) {
-    console.error('Email send error:', error);
-    return res.status(500).json({ error: 'Failed to send email' });
+    console.error('Email send error:', error.message || error);
+    return res.status(500).json({ error: 'Failed to send email', message: error.message });
   }
 }
 

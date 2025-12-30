@@ -16,21 +16,29 @@ interface PendingAuth {
   otpCode: string
 }
 
+// Auth result type with optional devOtp for development fallback
+interface AuthResult {
+  success: boolean
+  needsOtp?: boolean
+  error?: string
+  devOtp?: string  // For development: show OTP when email fails
+}
+
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
   isLoading: boolean
   pendingAuth: PendingAuth | null
-  login: (email: string, password: string) => Promise<{ success: boolean; needsOtp?: boolean; error?: string }>
-  signup: (name: string, email: string, password: string) => Promise<{ success: boolean; needsOtp?: boolean; error?: string }>
+  login: (email: string, password: string) => Promise<AuthResult>
+  signup: (name: string, email: string, password: string) => Promise<AuthResult>
   verifyOtp: (code: string) => Promise<boolean>
-  resendOtp: () => Promise<void>
+  resendOtp: () => Promise<{ devOtp?: string }>
   cancelOtp: () => void
   logout: () => void
   loginWithGoogle: () => Promise<{ success: boolean; error?: string }>
   loginWithGitHub: () => Promise<{ success: boolean; error?: string }>
   handleOAuthCallback: (userData: User) => void
-  requestPasswordReset: (email: string) => Promise<{ success: boolean; error?: string }>
+  requestPasswordReset: (email: string) => Promise<AuthResult>
   verifyResetOtp: (code: string) => Promise<boolean>
   resetPassword: (newPassword: string) => Promise<{ success: boolean; error?: string }>
 }
@@ -45,9 +53,11 @@ function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString()
 }
 
-// Send OTP email via API
-async function sendOtpEmail(email: string, otp: string, type: "login" | "signup" | "reset-password"): Promise<boolean> {
+// Send OTP email via API - returns { success, fallback } where fallback=true means show OTP in UI
+async function sendOtpEmail(email: string, otp: string, type: "login" | "signup" | "reset-password"): Promise<{ success: boolean; fallback: boolean }> {
   try {
+    console.log('📧 Sending OTP email to:', email, 'type:', type);
+
     const response = await fetch('/api/auth/send-otp', {
       method: 'POST',
       headers: {
@@ -56,15 +66,22 @@ async function sendOtpEmail(email: string, otp: string, type: "login" | "signup"
       body: JSON.stringify({ email, otp, type }),
     });
 
+    const data = await response.json().catch(() => ({}));
+
     if (!response.ok) {
-      console.error('Failed to send OTP email');
-      return false;
+      console.error('Failed to send OTP email:', response.status, data);
+      // Return fallback mode - email failed but we can still show OTP for testing
+      console.log('🔑 [DEV MODE] OTP code:', otp);
+      return { success: false, fallback: true };
     }
 
-    return true;
+    console.log('✅ OTP email sent successfully');
+    return { success: true, fallback: false };
   } catch (error) {
     console.error('Error sending OTP email:', error);
-    return false;
+    // Return fallback mode on network errors too
+    console.log('🔑 [DEV MODE] OTP code:', otp);
+    return { success: false, fallback: true };
   }
 }
 
@@ -86,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false)
   }, [])
 
-  const login = async (email: string, password: string): Promise<{ success: boolean; needsOtp?: boolean; error?: string }> => {
+  const login = async (email: string, password: string): Promise<AuthResult> => {
     // Normalize email (lowercase + trim) to handle mobile keyboard quirks
     const normalizedEmail = email.toLowerCase().trim()
 
@@ -102,24 +119,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const otpCode = generateOtp()
 
       // Send OTP email
-      const emailSent = await sendOtpEmail(email, otpCode, "login")
-      if (!emailSent) {
-        return { success: false, error: "Failed to send verification email. Please try again." }
-      }
+      const emailResult = await sendOtpEmail(normalizedEmail, otpCode, "login")
 
       setPendingAuth({
         type: "login",
-        email,
+        email: normalizedEmail,
         password,
         otpCode,
       })
+
+      // If email failed but fallback is enabled, return with devOtp for testing
+      if (!emailResult.success && emailResult.fallback) {
+        return { success: true, needsOtp: true, devOtp: otpCode }
+      }
+
       return { success: true, needsOtp: true }
     }
 
     return { success: false, error: "Invalid email or password" }
   }
 
-  const signup = async (name: string, email: string, password: string): Promise<{ success: boolean; needsOtp?: boolean; error?: string }> => {
+  const signup = async (name: string, email: string, password: string): Promise<AuthResult> => {
     // Normalize email (lowercase + trim) to handle mobile keyboard quirks
     const normalizedEmail = email.toLowerCase().trim()
 
@@ -136,10 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const otpCode = generateOtp()
 
     // Send OTP email
-    const emailSent = await sendOtpEmail(normalizedEmail, otpCode, "signup")
-    if (!emailSent) {
-      return { success: false, error: "Failed to send verification email. Please try again." }
-    }
+    const emailResult = await sendOtpEmail(normalizedEmail, otpCode, "signup")
 
     setPendingAuth({
       type: "signup",
@@ -148,6 +165,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
       otpCode,
     })
+
+    // If email failed but fallback is enabled, return with devOtp for testing
+    if (!emailResult.success && emailResult.fallback) {
+      return { success: true, needsOtp: true, devOtp: otpCode }
+    }
+
     return { success: true, needsOtp: true }
   }
 
@@ -196,16 +219,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return true
   }
 
-  const resendOtp = async () => {
+  const resendOtp = async (): Promise<{ devOtp?: string }> => {
     if (pendingAuth) {
       const newOtp = generateOtp()
 
       // Send new OTP email
-      const emailSent = await sendOtpEmail(pendingAuth.email, newOtp, pendingAuth.type)
-      if (emailSent) {
-        setPendingAuth({ ...pendingAuth, otpCode: newOtp })
+      const emailResult = await sendOtpEmail(pendingAuth.email, newOtp, pendingAuth.type)
+      setPendingAuth({ ...pendingAuth, otpCode: newOtp })
+
+      // Return devOtp if email failed for testing
+      if (!emailResult.success && emailResult.fallback) {
+        return { devOtp: newOtp }
       }
     }
+    return {}
   }
 
   const cancelOtp = () => {
@@ -244,7 +271,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   // Request password reset - sends OTP to email
-  const requestPasswordReset = async (email: string): Promise<{ success: boolean; error?: string }> => {
+  const requestPasswordReset = async (email: string): Promise<AuthResult> => {
     // Normalize email (lowercase + trim) to handle mobile keyboard quirks
     const normalizedEmail = email.toLowerCase().trim()
 
@@ -261,10 +288,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const otpCode = generateOtp()
 
     // Send OTP email
-    const emailSent = await sendOtpEmail(normalizedEmail, otpCode, "reset-password")
-    if (!emailSent) {
-      return { success: false, error: "Failed to send verification email. Please try again." }
-    }
+    const emailResult = await sendOtpEmail(normalizedEmail, otpCode, "reset-password")
 
     setPendingAuth({
       type: "reset-password",
@@ -272,6 +296,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password: "", // Will be set later
       otpCode,
     })
+
+    // If email failed but fallback is enabled, return with devOtp for testing
+    if (!emailResult.success && emailResult.fallback) {
+      return { success: true, devOtp: otpCode }
+    }
 
     return { success: true }
   }

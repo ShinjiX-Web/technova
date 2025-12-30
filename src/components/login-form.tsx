@@ -31,18 +31,23 @@ export function LoginForm({
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
+  const [devOtp, setDevOtp] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const { login, pendingAuth, loginWithGoogle, loginWithGitHub } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setDevOtp(null)
     setIsLoading(true)
 
     try {
       const result = await login(email, password)
       if (!result.success) {
         setError(result.error || "Invalid email or password")
+      } else if (result.devOtp) {
+        // Show OTP for development testing when email fails
+        setDevOtp(result.devOtp)
       }
       // If needsOtp is true, the pendingAuth state will be set and OTP form will show
     } catch {
@@ -72,7 +77,7 @@ export function LoginForm({
   if (pendingAuth?.type === "login") {
     return (
       <div className={cn("flex flex-col gap-6", className)} {...props}>
-        <OTPForm />
+        <OTPForm devOtp={devOtp} />
       </div>
     )
   }

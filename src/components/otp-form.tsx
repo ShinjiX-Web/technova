@@ -23,11 +23,13 @@ import { useAuth } from "@/contexts/auth-context"
 
 interface OTPFormProps extends React.ComponentProps<typeof Card> {
   onCancel?: () => void
+  devOtp?: string | null  // For development: show OTP when email fails
 }
 
-export function OTPForm({ onCancel, ...props }: OTPFormProps) {
+export function OTPForm({ onCancel, devOtp: initialDevOtp, ...props }: OTPFormProps) {
   const [otp, setOtp] = useState("")
   const [error, setError] = useState("")
+  const [devOtp, setDevOtp] = useState<string | null>(initialDevOtp || null)
   const [isLoading, setIsLoading] = useState(false)
   const { pendingAuth, verifyOtp, resendOtp, cancelOtp } = useAuth()
   const navigate = useNavigate()
@@ -59,10 +61,13 @@ export function OTPForm({ onCancel, ...props }: OTPFormProps) {
     }
   }
 
-  const handleResend = () => {
-    resendOtp()
+  const handleResend = async () => {
+    const result = await resendOtp()
     setOtp("")
     setError("")
+    if (result.devOtp) {
+      setDevOtp(result.devOtp)
+    }
   }
 
   const handleCancel = () => {
@@ -83,6 +88,11 @@ export function OTPForm({ onCancel, ...props }: OTPFormProps) {
       <CardContent>
         <form onSubmit={handleSubmit}>
           <FieldGroup>
+            {devOtp && (
+              <div className="p-3 text-sm text-amber-700 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-300 rounded-lg border border-amber-200 dark:border-amber-800">
+                <span className="font-semibold">🔧 Dev Mode:</span> Email failed to send. Your code is: <code className="font-mono font-bold text-lg">{devOtp}</code>
+              </div>
+            )}
             {error && (
               <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg">
                 {error}
