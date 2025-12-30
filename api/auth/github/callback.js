@@ -30,11 +30,12 @@ export default async function handler(req, res) {
 
     const accessToken = tokenData.access_token;
 
-    // Get user info from GitHub
-    const userResponse = await fetch('https://github.com/user', {
+    // Get user info from GitHub API
+    const userResponse = await fetch('https://api.github.com/user', {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
-        'Accept': 'application/json',
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
       },
     });
 
@@ -43,10 +44,11 @@ export default async function handler(req, res) {
     // Get user email (may need separate call if email is private)
     let email = userData.email;
     if (!email) {
-      const emailResponse = await fetch('https://github.com/user/emails', {
+      const emailResponse = await fetch('https://api.github.com/user/emails', {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json',
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
         },
       });
       const emails = await emailResponse.json();
@@ -65,14 +67,15 @@ export default async function handler(req, res) {
 
     // Encode user data to pass to frontend
     const userParam = encodeURIComponent(JSON.stringify(user));
-    
+
     // Redirect to frontend with user data
-    const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
+    // Use SITE_URL env var for production, fallback to VERCEL_URL or localhost
+    const baseUrl = process.env.SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
     res.redirect(`${baseUrl}/auth/callback?user=${userParam}&provider=github`);
-    
+
   } catch (error) {
     console.error('OAuth error:', error);
-    res.redirect('/?error=oauth_failed');
+    res.redirect(`${process.env.SITE_URL || '/'}?error=oauth_failed`);
   }
 }
 
