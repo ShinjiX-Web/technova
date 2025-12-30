@@ -1,9 +1,11 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 
-interface User {
+export interface User {
   id: string
   name: string
   email: string
+  avatar?: string
+  provider?: string
 }
 
 interface PendingAuth {
@@ -27,6 +29,7 @@ interface AuthContextType {
   logout: () => void
   loginWithGoogle: () => Promise<{ success: boolean; error?: string }>
   loginWithGitHub: () => Promise<{ success: boolean; error?: string }>
+  handleOAuthCallback: (userData: User) => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -188,15 +191,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   // OAuth login with GitHub
-  // In production, this would redirect to GitHub OAuth flow
   const loginWithGitHub = async (): Promise<{ success: boolean; error?: string }> => {
-    // TODO: Implement actual GitHub OAuth flow
-    // Example production implementation:
-    // window.location.href = `${API_URL}/auth/github`
-    // The callback would then set the user in localStorage
+    // Redirect to GitHub OAuth endpoint
+    window.location.href = '/api/auth/github';
+    return { success: true };
+  }
 
-    console.log("🔐 GitHub OAuth: In production, this would redirect to GitHub OAuth")
-    return { success: false, error: "GitHub OAuth not configured. Please set up GitHub OAuth credentials." }
+  // Handle OAuth callback - call this when returning from OAuth provider
+  const handleOAuthCallback = (userData: User) => {
+    setUser(userData);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
   }
 
   return (
@@ -214,6 +218,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         loginWithGoogle,
         loginWithGitHub,
+        handleOAuthCallback,
       }}
     >
       {children}
