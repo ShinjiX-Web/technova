@@ -1,4 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
+import { supabase } from "@/lib/supabase"
+import type { User as SupabaseUser } from "@supabase/supabase-js"
 
 export interface User {
   id: string
@@ -12,16 +14,15 @@ interface PendingAuth {
   type: "login" | "signup" | "reset-password"
   email: string
   name?: string
-  password: string
-  otpCode: string
+  password?: string
 }
 
-// Auth result type with optional devOtp for development fallback
+// Auth result type
 interface AuthResult {
   success: boolean
   needsOtp?: boolean
   error?: string
-  devOtp?: string  // For development: show OTP when email fails
+  devOtp?: string  // For development: not used with Supabase
 }
 
 interface AuthContextType {
@@ -45,43 +46,21 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const STORAGE_KEY = "auth_user"
-const USERS_KEY = "auth_users"
+// Helper to convert Supabase user to our User type
+async function getProfile(supabaseUser: SupabaseUser): Promise<User> {
+  // Try to get profile from profiles table
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', supabaseUser.id)
+    .single()
 
-// Generate a random 6-digit OTP
-function generateOtp(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString()
-}
-
-// Send OTP email via API - returns { success, fallback } where fallback=true means show OTP in UI
-async function sendOtpEmail(email: string, otp: string, type: "login" | "signup" | "reset-password"): Promise<{ success: boolean; fallback: boolean }> {
-  try {
-    console.log('📧 Sending OTP email to:', email, 'type:', type);
-
-    const response = await fetch('/api/auth/send-otp', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ email, otp, type }),
-    });
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      console.error('Failed to send OTP email:', response.status, data);
-      // Return fallback mode - email failed but we can still show OTP for testing
-      console.log('🔑 [DEV MODE] OTP code:', otp);
-      return { success: false, fallback: true };
-    }
-
-    console.log('✅ OTP email sent successfully');
-    return { success: true, fallback: false };
-  } catch (error) {
-    console.error('Error sending OTP email:', error);
-    // Return fallback mode on network errors too
-    console.log('🔑 [DEV MODE] OTP code:', otp);
-    return { success: false, fallback: true };
+  return {
+    id: supabaseUser.id,
+    name: profile?.name || supabaseUser.user_metadata?.name || supabaseUser.user_metadata?.full_name || '',
+    email: supabaseUser.email || '',
+    avatar: profile?.avatar_url || supabaseUser.user_metadata?.avatar_url,
+    provider: supabaseUser.app_metadata?.provider,
   }
 }
 
@@ -90,146 +69,182 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [pendingAuth, setPendingAuth] = useState<PendingAuth | null>(null)
 
-  // Check for existing session on mount
+  // Check for existing session on mount and subscribe to auth changes
   useEffect(() => {
-    const storedUser = localStorage.getItem(STORAGE_KEY)
-    if (storedUser) {
+    // Get initial session
+    const initSession = async () => {
       try {
-        setUser(JSON.parse(storedUser))
-      } catch {
-        localStorage.removeItem(STORAGE_KEY)
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          const profile = await getProfile(session.user)
+          setUser(profile)
+        }
+      } catch (error) {
+        console.error('Error getting session:', error)
+      } finally {
+        setIsLoading(false)
       }
     }
-    setIsLoading(false)
+
+    initSession()
+
+    // Subscribe to auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, session?.user?.email)
+
+      if (event === 'SIGNED_IN' && session?.user) {
+        const profile = await getProfile(session.user)
+        setUser(profile)
+        setPendingAuth(null)
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null)
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [])
 
   const login = async (email: string, password: string): Promise<AuthResult> => {
-    // Normalize email (lowercase + trim) to handle mobile keyboard quirks
     const normalizedEmail = email.toLowerCase().trim()
 
-    // Get stored users
-    const usersJson = localStorage.getItem(USERS_KEY)
-    const users: Array<User & { password: string }> = usersJson ? JSON.parse(usersJson) : []
-
-    // Find user (case-insensitive email comparison)
-    const foundUser = users.find((u) => u.email.toLowerCase().trim() === normalizedEmail && u.password === password)
-
-    if (foundUser) {
-      // Generate OTP and set pending auth
-      const otpCode = generateOtp()
-
-      // Send OTP email
-      const emailResult = await sendOtpEmail(normalizedEmail, otpCode, "login")
-
-      setPendingAuth({
-        type: "login",
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
         password,
-        otpCode,
       })
 
-      // If email failed but fallback is enabled, return with devOtp for testing
-      if (!emailResult.success && emailResult.fallback) {
-        return { success: true, needsOtp: true, devOtp: otpCode }
+      if (error) {
+        console.error('Login error:', error)
+        return { success: false, error: error.message }
       }
 
-      return { success: true, needsOtp: true }
-    }
+      if (data.user) {
+        const profile = await getProfile(data.user)
+        setUser(profile)
+        return { success: true }
+      }
 
-    return { success: false, error: "Invalid email or password" }
+      return { success: false, error: "Login failed" }
+    } catch (error) {
+      console.error('Login error:', error)
+      return { success: false, error: "An error occurred during login" }
+    }
   }
 
   const signup = async (name: string, email: string, password: string): Promise<AuthResult> => {
-    // Normalize email (lowercase + trim) to handle mobile keyboard quirks
     const normalizedEmail = email.toLowerCase().trim()
 
-    // Get stored users
-    const usersJson = localStorage.getItem(USERS_KEY)
-    const users: Array<User & { password: string }> = usersJson ? JSON.parse(usersJson) : []
+    try {
+      // Sign up with Supabase - this will send a confirmation email automatically
+      const { data, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: {
+          data: {
+            name: name,
+            full_name: name,
+          },
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
 
-    // Check if email already exists (case-insensitive)
-    if (users.some((u) => u.email.toLowerCase().trim() === normalizedEmail)) {
-      return { success: false, error: "An account with this email already exists" }
+      if (error) {
+        console.error('Signup error:', error)
+        return { success: false, error: error.message }
+      }
+
+      if (data.user) {
+        // Check if email confirmation is required
+        if (data.user.identities?.length === 0) {
+          return { success: false, error: "An account with this email already exists" }
+        }
+
+        // If session exists, user is logged in (email confirmation disabled)
+        if (data.session) {
+          // Create profile in profiles table
+          await supabase.from('profiles').upsert({
+            id: data.user.id,
+            name: name,
+            email: normalizedEmail,
+            updated_at: new Date().toISOString(),
+          })
+
+          const profile = await getProfile(data.user)
+          setUser(profile)
+          return { success: true }
+        }
+
+        // Email confirmation required - set pending auth
+        setPendingAuth({
+          type: "signup",
+          email: normalizedEmail,
+          name,
+        })
+        return { success: true, needsOtp: true }
+      }
+
+      return { success: false, error: "Signup failed" }
+    } catch (error) {
+      console.error('Signup error:', error)
+      return { success: false, error: "An error occurred during signup" }
     }
-
-    // Generate OTP and set pending auth
-    const otpCode = generateOtp()
-
-    // Send OTP email
-    const emailResult = await sendOtpEmail(normalizedEmail, otpCode, "signup")
-
-    setPendingAuth({
-      type: "signup",
-      email: normalizedEmail,
-      name,
-      password,
-      otpCode,
-    })
-
-    // If email failed but fallback is enabled, return with devOtp for testing
-    if (!emailResult.success && emailResult.fallback) {
-      return { success: true, needsOtp: true, devOtp: otpCode }
-    }
-
-    return { success: true, needsOtp: true }
   }
 
   const verifyOtp = async (code: string): Promise<boolean> => {
     if (!pendingAuth) return false
 
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    try {
+      // Verify OTP with Supabase
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: pendingAuth.email,
+        token: code,
+        type: pendingAuth.type === 'signup' ? 'signup' : 'email',
+      })
 
-    if (code !== pendingAuth.otpCode) {
+      if (error) {
+        console.error('OTP verification error:', error)
+        return false
+      }
+
+      if (data.user) {
+        // Create/update profile if signup
+        if (pendingAuth.type === 'signup' && pendingAuth.name) {
+          await supabase.from('profiles').upsert({
+            id: data.user.id,
+            name: pendingAuth.name,
+            email: pendingAuth.email,
+            updated_at: new Date().toISOString(),
+          })
+        }
+
+        const profile = await getProfile(data.user)
+        setUser(profile)
+        setPendingAuth(null)
+        return true
+      }
+
+      return false
+    } catch (error) {
+      console.error('OTP verification error:', error)
       return false
     }
-
-    if (pendingAuth.type === "signup") {
-      // Complete signup
-      const usersJson = localStorage.getItem(USERS_KEY)
-      const users: Array<User & { password: string }> = usersJson ? JSON.parse(usersJson) : []
-
-      const newUser = {
-        id: crypto.randomUUID(),
-        name: pendingAuth.name || "",
-        email: pendingAuth.email,
-        password: pendingAuth.password,
-      }
-
-      users.push(newUser)
-      localStorage.setItem(USERS_KEY, JSON.stringify(users))
-
-      const { password: _, ...userWithoutPassword } = newUser
-      setUser(userWithoutPassword)
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(userWithoutPassword))
-    } else {
-      // Complete login
-      const usersJson = localStorage.getItem(USERS_KEY)
-      const users: Array<User & { password: string }> = usersJson ? JSON.parse(usersJson) : []
-      const foundUser = users.find((u) => u.email === pendingAuth.email && u.password === pendingAuth.password)
-
-      if (foundUser) {
-        const { password: _, ...userWithoutPassword } = foundUser
-        setUser(userWithoutPassword)
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(userWithoutPassword))
-      }
-    }
-
-    setPendingAuth(null)
-    return true
   }
 
   const resendOtp = async (): Promise<{ devOtp?: string }> => {
     if (pendingAuth) {
-      const newOtp = generateOtp()
+      try {
+        const { error } = await supabase.auth.resend({
+          type: pendingAuth.type === 'signup' ? 'signup' : 'email_change',
+          email: pendingAuth.email,
+        })
 
-      // Send new OTP email
-      const emailResult = await sendOtpEmail(pendingAuth.email, newOtp, pendingAuth.type)
-      setPendingAuth({ ...pendingAuth, otpCode: newOtp })
-
-      // Return devOtp if email failed for testing
-      if (!emailResult.success && emailResult.fallback) {
-        return { devOtp: newOtp }
+        if (error) {
+          console.error('Resend OTP error:', error)
+        }
+      } catch (error) {
+        console.error('Resend OTP error:', error)
       }
     }
     return {}
@@ -239,102 +254,131 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPendingAuth(null)
   }
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await supabase.auth.signOut()
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
     setUser(null)
-    localStorage.removeItem(STORAGE_KEY)
   }
 
   // OAuth login with Google
-  // In production, this would redirect to Google OAuth flow
-  // For now, it's a placeholder that simulates the flow
   const loginWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
-    // TODO: Implement actual Google OAuth flow
-    // Example production implementation:
-    // window.location.href = `${API_URL}/auth/google`
-    // The callback would then set the user in localStorage
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
 
-    console.log("🔐 Google OAuth: In production, this would redirect to Google OAuth")
-    return { success: false, error: "Google OAuth not configured. Please set up Google OAuth credentials." }
+      if (error) {
+        console.error('Google OAuth error:', error)
+        return { success: false, error: error.message }
+      }
+
+      return { success: true }
+    } catch (error) {
+      console.error('Google OAuth error:', error)
+      return { success: false, error: "Failed to initiate Google login" }
+    }
   }
 
   // OAuth login with GitHub
   const loginWithGitHub = async (): Promise<{ success: boolean; error?: string }> => {
-    // Redirect to GitHub OAuth endpoint
-    window.location.href = '/api/auth/github';
-    return { success: true };
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
+
+      if (error) {
+        console.error('GitHub OAuth error:', error)
+        return { success: false, error: error.message }
+      }
+
+      return { success: true }
+    } catch (error) {
+      console.error('GitHub OAuth error:', error)
+      return { success: false, error: "Failed to initiate GitHub login" }
+    }
   }
 
-  // Handle OAuth callback - call this when returning from OAuth provider
-  const handleOAuthCallback = (userData: User) => {
-    setUser(userData);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
+  // Handle OAuth callback - not needed with Supabase, but kept for API compatibility
+  const handleOAuthCallback = (_userData: User) => {
+    // Supabase handles this automatically via onAuthStateChange
   }
 
-  // Request password reset - sends OTP to email
+  // Request password reset - sends reset email via Supabase
   const requestPasswordReset = async (email: string): Promise<AuthResult> => {
-    // Normalize email (lowercase + trim) to handle mobile keyboard quirks
     const normalizedEmail = email.toLowerCase().trim()
 
-    // Check if user exists
-    const usersJson = localStorage.getItem(USERS_KEY)
-    const users: Array<User & { password: string }> = usersJson ? JSON.parse(usersJson) : []
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+        redirectTo: `${window.location.origin}/auth/reset-password`,
+      })
 
-    const userExists = users.some((u) => u.email.toLowerCase().trim() === normalizedEmail)
-    if (!userExists) {
-      return { success: false, error: "No account found with this email address" }
+      if (error) {
+        console.error('Password reset error:', error)
+        return { success: false, error: error.message }
+      }
+
+      setPendingAuth({
+        type: "reset-password",
+        email: normalizedEmail,
+      })
+
+      return { success: true }
+    } catch (error) {
+      console.error('Password reset error:', error)
+      return { success: false, error: "Failed to send reset email" }
     }
-
-    // Generate OTP
-    const otpCode = generateOtp()
-
-    // Send OTP email
-    const emailResult = await sendOtpEmail(normalizedEmail, otpCode, "reset-password")
-
-    setPendingAuth({
-      type: "reset-password",
-      email: normalizedEmail,
-      password: "", // Will be set later
-      otpCode,
-    })
-
-    // If email failed but fallback is enabled, return with devOtp for testing
-    if (!emailResult.success && emailResult.fallback) {
-      return { success: true, devOtp: otpCode }
-    }
-
-    return { success: true }
   }
 
-  // Verify reset OTP
+  // Verify reset OTP - with Supabase, user clicks link in email which handles verification
   const verifyResetOtp = async (code: string): Promise<boolean> => {
     if (!pendingAuth || pendingAuth.type !== "reset-password") return false
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: pendingAuth.email,
+        token: code,
+        type: 'recovery',
+      })
 
-    return code === pendingAuth.otpCode
+      if (error) {
+        console.error('Reset OTP verification error:', error)
+        return false
+      }
+
+      return !!data.user
+    } catch (error) {
+      console.error('Reset OTP verification error:', error)
+      return false
+    }
   }
 
-  // Reset password after OTP verification
+  // Reset password after OTP verification (or after clicking email link)
   const resetPassword = async (newPassword: string): Promise<{ success: boolean; error?: string }> => {
-    if (!pendingAuth || pendingAuth.type !== "reset-password") {
-      return { success: false, error: "No password reset in progress" }
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      })
+
+      if (error) {
+        console.error('Password update error:', error)
+        return { success: false, error: error.message }
+      }
+
+      setPendingAuth(null)
+      return { success: true }
+    } catch (error) {
+      console.error('Password update error:', error)
+      return { success: false, error: "Failed to update password" }
     }
-
-    const usersJson = localStorage.getItem(USERS_KEY)
-    const users: Array<User & { password: string }> = usersJson ? JSON.parse(usersJson) : []
-
-    const userIndex = users.findIndex((u) => u.email.toLowerCase().trim() === pendingAuth.email.toLowerCase().trim())
-    if (userIndex === -1) {
-      return { success: false, error: "User not found" }
-    }
-
-    // Update password
-    users[userIndex].password = newPassword
-    localStorage.setItem(USERS_KEY, JSON.stringify(users))
-
-    setPendingAuth(null)
-
-    return { success: true }
   }
 
   return (
