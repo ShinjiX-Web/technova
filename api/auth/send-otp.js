@@ -21,9 +21,11 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         from: 'TechNova <onboarding@resend.dev>',
         to: [email],
-        subject: type === 'signup' 
-          ? 'Welcome to TechNova - Verify your email' 
-          : 'TechNova - Your login verification code',
+        subject: type === 'signup'
+          ? 'Welcome to TechNova - Verify your email'
+          : type === 'reset-password'
+            ? 'TechNova - Reset your password'
+            : 'TechNova - Your login verification code',
         html: `
           <!DOCTYPE html>
           <html>
@@ -36,15 +38,17 @@ export default async function handler(req, res) {
                 <div style="text-align: center; margin-bottom: 30px;">
                   <h1 style="color: #18181b; font-size: 24px; margin: 0;">TechNova</h1>
                 </div>
-                
+
                 <h2 style="color: #18181b; font-size: 20px; text-align: center; margin-bottom: 10px;">
-                  ${type === 'signup' ? 'Verify your email' : 'Login verification'}
+                  ${type === 'signup' ? 'Verify your email' : type === 'reset-password' ? 'Reset your password' : 'Login verification'}
                 </h2>
-                
+
                 <p style="color: #71717a; font-size: 14px; text-align: center; margin-bottom: 30px;">
-                  ${type === 'signup' 
-                    ? 'Enter this code to complete your registration:' 
-                    : 'Enter this code to sign in to your account:'}
+                  ${type === 'signup'
+                    ? 'Enter this code to complete your registration:'
+                    : type === 'reset-password'
+                      ? 'Enter this code to reset your password:'
+                      : 'Enter this code to sign in to your account:'}
                 </p>
                 
                 <div style="background: #f4f4f5; border-radius: 8px; padding: 20px; text-align: center; margin-bottom: 30px;">

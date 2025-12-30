@@ -9,7 +9,7 @@ export interface User {
 }
 
 interface PendingAuth {
-  type: "login" | "signup"
+  type: "login" | "signup" | "reset-password"
   email: string
   name?: string
   password: string
@@ -30,6 +30,9 @@ interface AuthContextType {
   loginWithGoogle: () => Promise<{ success: boolean; error?: string }>
   loginWithGitHub: () => Promise<{ success: boolean; error?: string }>
   handleOAuthCallback: (userData: User) => void
+  requestPasswordReset: (email: string) => Promise<{ success: boolean; error?: string }>
+  verifyResetOtp: (code: string) => Promise<boolean>
+  resetPassword: (newPassword: string) => Promise<{ success: boolean; error?: string }>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -43,7 +46,7 @@ function generateOtp(): string {
 }
 
 // Send OTP email via API
-async function sendOtpEmail(email: string, otp: string, type: "login" | "signup"): Promise<boolean> {
+async function sendOtpEmail(email: string, otp: string, type: "login" | "signup" | "reset-password"): Promise<boolean> {
   try {
     const response = await fetch('/api/auth/send-otp', {
       method: 'POST',
@@ -84,12 +87,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = async (email: string, password: string): Promise<{ success: boolean; needsOtp?: boolean; error?: string }> => {
+    // Normalize email (lowercase + trim) to handle mobile keyboard quirks
+    const normalizedEmail = email.toLowerCase().trim()
+
     // Get stored users
     const usersJson = localStorage.getItem(USERS_KEY)
     const users: Array<User & { password: string }> = usersJson ? JSON.parse(usersJson) : []
 
-    // Find user
-    const foundUser = users.find((u) => u.email === email && u.password === password)
+    // Find user (case-insensitive email comparison)
+    const foundUser = users.find((u) => u.email.toLowerCase().trim() === normalizedEmail && u.password === password)
 
     if (foundUser) {
       // Generate OTP and set pending auth
@@ -114,12 +120,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signup = async (name: string, email: string, password: string): Promise<{ success: boolean; needsOtp?: boolean; error?: string }> => {
+    // Normalize email (lowercase + trim) to handle mobile keyboard quirks
+    const normalizedEmail = email.toLowerCase().trim()
+
     // Get stored users
     const usersJson = localStorage.getItem(USERS_KEY)
     const users: Array<User & { password: string }> = usersJson ? JSON.parse(usersJson) : []
 
-    // Check if email already exists
-    if (users.some((u) => u.email === email)) {
+    // Check if email already exists (case-insensitive)
+    if (users.some((u) => u.email.toLowerCase().trim() === normalizedEmail)) {
       return { success: false, error: "An account with this email already exists" }
     }
 
@@ -127,14 +136,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const otpCode = generateOtp()
 
     // Send OTP email
-    const emailSent = await sendOtpEmail(email, otpCode, "signup")
+    const emailSent = await sendOtpEmail(normalizedEmail, otpCode, "signup")
     if (!emailSent) {
       return { success: false, error: "Failed to send verification email. Please try again." }
     }
 
     setPendingAuth({
       type: "signup",
-      email,
+      email: normalizedEmail,
       name,
       password,
       otpCode,
@@ -234,6 +243,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
   }
 
+  // Request password reset - sends OTP to email
+  const requestPasswordReset = async (email: string): Promise<{ success: boolean; error?: string }> => {
+    // Normalize email (lowercase + trim) to handle mobile keyboard quirks
+    const normalizedEmail = email.toLowerCase().trim()
+
+    // Check if user exists
+    const usersJson = localStorage.getItem(USERS_KEY)
+    const users: Array<User & { password: string }> = usersJson ? JSON.parse(usersJson) : []
+
+    const userExists = users.some((u) => u.email.toLowerCase().trim() === normalizedEmail)
+    if (!userExists) {
+      return { success: false, error: "No account found with this email address" }
+    }
+
+    // Generate OTP
+    const otpCode = generateOtp()
+
+    // Send OTP email
+    const emailSent = await sendOtpEmail(normalizedEmail, otpCode, "reset-password")
+    if (!emailSent) {
+      return { success: false, error: "Failed to send verification email. Please try again." }
+    }
+
+    setPendingAuth({
+      type: "reset-password",
+      email: normalizedEmail,
+      password: "", // Will be set later
+      otpCode,
+    })
+
+    return { success: true }
+  }
+
+  // Verify reset OTP
+  const verifyResetOtp = async (code: string): Promise<boolean> => {
+    if (!pendingAuth || pendingAuth.type !== "reset-password") return false
+
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
+    return code === pendingAuth.otpCode
+  }
+
+  // Reset password after OTP verification
+  const resetPassword = async (newPassword: string): Promise<{ success: boolean; error?: string }> => {
+    if (!pendingAuth || pendingAuth.type !== "reset-password") {
+      return { success: false, error: "No password reset in progress" }
+    }
+
+    const usersJson = localStorage.getItem(USERS_KEY)
+    const users: Array<User & { password: string }> = usersJson ? JSON.parse(usersJson) : []
+
+    const userIndex = users.findIndex((u) => u.email.toLowerCase().trim() === pendingAuth.email.toLowerCase().trim())
+    if (userIndex === -1) {
+      return { success: false, error: "User not found" }
+    }
+
+    // Update password
+    users[userIndex].password = newPassword
+    localStorage.setItem(USERS_KEY, JSON.stringify(users))
+
+    setPendingAuth(null)
+
+    return { success: true }
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -250,6 +324,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loginWithGoogle,
         loginWithGitHub,
         handleOAuthCallback,
+        requestPasswordReset,
+        verifyResetOtp,
+        resetPassword,
       }}
     >
       {children}

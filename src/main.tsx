@@ -6,6 +6,7 @@ import App from './App.tsx'
 import Dashboard from './pages/dashboard.tsx'
 import LandingPage from './pages/landing.tsx'
 import AuthCallback from './pages/auth-callback.tsx'
+import ForgotPassword from './pages/forgot-password.tsx'
 import { ThemeProvider } from './components/ui/theme-provider.tsx'
 import { AuthProvider, useAuth } from './contexts/auth-context.tsx'
 import { WaveBackground } from './components/ui/wave-background.tsx'
@@ -76,6 +77,14 @@ createRoot(document.getElementById('root')!).render(
                 }
               />
               <Route path="/auth/callback" element={<AuthCallback />} />
+              <Route
+                path="/forgot-password"
+                element={
+                  <AuthRoute>
+                    <ForgotPassword />
+                  </AuthRoute>
+                }
+              />
             </Routes>
           </div>
         </BrowserRouter>
