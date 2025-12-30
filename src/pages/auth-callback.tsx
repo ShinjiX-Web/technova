@@ -1,45 +1,39 @@
 import { useEffect } from "react"
-import { useNavigate, useSearchParams } from "react-router-dom"
-import { useAuth, type User } from "@/contexts/auth-context"
+import { useSearchParams } from "react-router-dom"
+import { type User } from "@/contexts/auth-context"
+
+const STORAGE_KEY = "auth_user"
 
 export default function AuthCallback() {
   const [searchParams] = useSearchParams()
-  const navigate = useNavigate()
-  const { handleOAuthCallback } = useAuth()
 
   useEffect(() => {
     const userParam = searchParams.get("user")
-    const provider = searchParams.get("provider")
     const error = searchParams.get("error")
 
     if (error) {
       console.error("OAuth error:", error)
-      navigate("/login", { replace: true, state: { error: `Authentication failed: ${error}` } })
+      window.location.replace(`/login?error=${encodeURIComponent(error)}`)
       return
     }
 
     if (userParam) {
       try {
         const userData: User = JSON.parse(decodeURIComponent(userParam))
-        handleOAuthCallback(userData)
-        
-        // Navigate to dashboard with success message
-        navigate("/dashboard", { 
-          replace: true, 
-          state: { 
-            showSuccess: true, 
-            isSignup: false,
-            provider 
-          } 
-        })
+
+        // Save directly to localStorage
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(userData))
+
+        // Use window.location for a full page navigation to ensure state is fresh
+        window.location.replace("/dashboard")
       } catch (err) {
         console.error("Failed to parse user data:", err)
-        navigate("/login", { replace: true, state: { error: "Failed to process authentication" } })
+        window.location.replace("/login?error=parse_failed")
       }
     } else {
-      navigate("/login", { replace: true })
+      window.location.replace("/login")
     }
-  }, [searchParams, navigate, handleOAuthCallback])
+  }, [searchParams])
 
   return (
     <div className="flex min-h-svh items-center justify-center bg-white dark:bg-neutral-950">
