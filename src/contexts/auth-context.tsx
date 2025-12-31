@@ -197,13 +197,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Supabase returns "Invalid login credentials" for OAuth users without password
         if (error.message === 'Invalid login credentials') {
           try {
-            // Check if user exists with OAuth provider by attempting to get user info
-            // We'll check the profiles table to see if they signed up with OAuth
-            const { data: profileData, error: profileError } = await supabase
+            // Check if user exists with OAuth provider with a timeout to prevent hanging
+            const profilePromise = supabase
               .from('profiles')
               .select('oauth_provider')
               .eq('email', normalizedEmail)
               .maybeSingle()
+
+            const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) =>
+              setTimeout(() => resolve({ data: null, error: new Error('Profile check timeout') }), 3000)
+            )
+
+            const { data: profileData, error: profileError } = await Promise.race([profilePromise, timeoutPromise])
 
             // Only check OAuth provider if the query succeeded and we have data
             if (!profileError && profileData?.oauth_provider) {
