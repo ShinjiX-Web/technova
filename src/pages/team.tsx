@@ -99,7 +99,7 @@ export default function TeamPage() {
       // Check if user is a member of someone else's team (by user_id OR by email)
       let memberOf = null
 
-      // First try by user_id
+      // First try by user_id (user_id is TEXT type)
       const { data: memberById } = await supabase
         .from("team_members")
         .select("*")
@@ -110,12 +110,19 @@ export default function TeamPage() {
         memberOf = memberById
       } else if (user.email) {
         // Try by email if user_id not found
-        const { data: memberByEmail } = await supabase
+        // Get all team members with this email (could be multiple teams)
+        const { data: membersByEmail } = await supabase
           .from("team_members")
           .select("*")
           .eq("email", user.email.toLowerCase())
-          .neq("owner_id", user.id) // Make sure it's not their own team
-          .single()
+
+        // Filter to find one where this user is NOT the owner
+        // We compare owner_id strings in JS to avoid UUID type issues
+        const memberByEmail = membersByEmail?.find(m => {
+          // Check if any of the owned team entries have this member
+          const isOwnTeam = ownedTeam?.some(owned => owned.id === m.id)
+          return !isOwnTeam
+        })
 
         if (memberByEmail) {
           memberOf = memberByEmail
