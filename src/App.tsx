@@ -5,8 +5,12 @@ import { SignupForm } from "@/components/ui/signup-form"
 import { ModeToggle } from "@/components/ui/mode-toggle"
 import { IconArrowLeft } from "@tabler/icons-react"
 
-export default function App() {
-  const [isSignup, setIsSignup] = useState(false)
+interface AppProps {
+  defaultSignup?: boolean
+}
+
+export default function App({ defaultSignup = false }: AppProps) {
+  const [isSignup, setIsSignup] = useState(defaultSignup)
 
   return (
     <div className="relative flex min-h-svh w-full items-center justify-center p-4">

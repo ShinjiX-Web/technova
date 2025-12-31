@@ -78,6 +78,14 @@ createRoot(document.getElementById('root')!).render(
                 }
               />
               <Route
+                path="/signup"
+                element={
+                  <AuthRoute>
+                    <App defaultSignup={true} />
+                  </AuthRoute>
+                }
+              />
+              <Route
                 path="/dashboard"
                 element={
                   <ProtectedRoute>
