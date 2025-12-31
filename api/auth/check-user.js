@@ -1,50 +1,56 @@
-// Check if user exists via Supabase Admin API
-import { createClient } from '@supabase/supabase-js'
+// Check if user exists via Firebase Admin SDK
+import admin from 'firebase-admin'
+
+// Initialize Firebase Admin if not already initialized
+function getFirebaseAdmin() {
+  if (admin.apps.length === 0) {
+    // Check for Firebase Admin configuration
+    const projectId = process.env.FIREBASE_PROJECT_ID
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
+
+    if (!projectId || !clientEmail || !privateKey) {
+      throw new Error('Firebase Admin configuration missing')
+    }
+
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail,
+        privateKey,
+      }),
+    })
+  }
+  return admin
+}
 
 export default async function handler(req, res) {
   // Only allow POST requests
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const { email } = req.body;
+  const { email } = req.body
 
   if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
-  }
-
-  // Check for Supabase configuration
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !supabaseServiceKey) {
-    console.error('Supabase configuration missing');
-    return res.status(500).json({ error: 'Server configuration error' });
+    return res.status(400).json({ error: 'Email is required' })
   }
 
   try {
-    // Create Supabase admin client with service role key
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
+    const firebaseAdmin = getFirebaseAdmin()
 
-    // Get all users and check if email exists
-    const { data: users, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+    // Try to get user by email
+    const userRecord = await firebaseAdmin.auth().getUserByEmail(email.toLowerCase())
 
-    if (listError) {
-      console.error('Error listing users:', listError);
-      return res.status(500).json({ error: 'Failed to check user' });
+    return res.status(200).json({ exists: !!userRecord })
+  } catch (error) {
+    // Firebase throws an error if user doesn't exist
+    if (error.code === 'auth/user-not-found') {
+      return res.status(200).json({ exists: false })
     }
 
-    const user = users.users.find(u => u.email?.toLowerCase() === email.toLowerCase());
-
-    return res.status(200).json({ exists: !!user });
-  } catch (error) {
-    console.error('Check user error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('Check user error:', error)
+    return res.status(500).json({ error: 'Internal server error' })
   }
 }
 
