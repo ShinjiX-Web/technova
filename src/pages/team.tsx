@@ -126,23 +126,29 @@ export default function TeamPage() {
       if (insertError) throw insertError
 
       // Send invitation email
+      let emailSent = false
       try {
-        await fetch("/api/team/invite", {
+        const emailRes = await fetch("/api/team/invite", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email: inviteForm.email, inviterName: user?.name, teamName: "TechNova", role: inviteForm.role }),
         })
+        emailSent = emailRes.ok
       } catch (emailError) {
         console.error("Failed to send invite email:", emailError)
       }
 
-      Swal.fire({ icon: "success", title: "Invitation Sent!", text: `Invitation sent to ${inviteForm.email}`, timer: 2000, showConfirmButton: false, ...getSwalTheme() })
+      if (emailSent) {
+        Swal.fire({ icon: "success", title: "Invitation Sent!", text: `Invitation sent to ${inviteForm.email}`, timer: 2000, showConfirmButton: false, ...getSwalTheme() })
+      } else {
+        Swal.fire({ icon: "success", title: "Member Added!", text: `${inviteForm.name} added to team. Email invitation requires domain verification in Resend.`, timer: 3000, showConfirmButton: false, ...getSwalTheme() })
+      }
       setIsInviteOpen(false)
       setInviteForm({ email: "", name: "", role: "Member", position: "" })
       fetchTeamMembers()
     } catch (error) {
       console.error("Error inviting member:", error)
-      Swal.fire({ icon: "error", title: "Error", text: "Failed to send invitation", ...getSwalTheme() })
+      Swal.fire({ icon: "error", title: "Error", text: "Failed to add team member", ...getSwalTheme() })
     } finally {
       setIsSaving(false)
     }
