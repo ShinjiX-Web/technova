@@ -375,14 +375,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const normalizedEmail = email.toLowerCase().trim()
 
     try {
-      // Check if user exists by looking up in profiles table
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('email', normalizedEmail)
-        .single()
+      // Check if user exists via server-side API (checks Supabase auth.users)
+      const checkResponse = await fetch('/api/auth/check-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail }),
+      })
 
-      if (profileError || !profile) {
+      const checkData = await checkResponse.json()
+
+      if (!checkResponse.ok || !checkData.exists) {
         return { success: false, error: "No account found with this email address" }
       }
 
