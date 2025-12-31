@@ -156,11 +156,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', event, session?.user?.email)
 
-      if (event === 'SIGNED_IN' && session?.user && isMounted) {
+      // Handle session establishment (login, OAuth callback, token refresh)
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && session?.user && isMounted) {
         const profile = await getProfile(session.user)
         if (isMounted) {
           setUser(profile)
           setPendingAuth(null)
+          setIsLoading(false)
         }
       } else if (event === 'SIGNED_OUT' && isMounted) {
         setUser(null)
