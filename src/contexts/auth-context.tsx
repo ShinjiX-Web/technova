@@ -452,11 +452,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await supabase.auth.signOut()
+      // Use global scope to sign out all sessions/tabs
+      await supabase.auth.signOut({ scope: 'global' })
     } catch (error) {
       console.error('Logout error:', error)
     }
+    // Clear user state immediately
     setUser(null)
+    setPendingAuth(null)
   }
 
   // Update user profile in context (for real-time UI updates)
