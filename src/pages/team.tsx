@@ -112,6 +112,25 @@ export default function TeamPage() {
 
       if (memberById) {
         memberOf = memberById
+        // Always sync name and avatar from the user's current profile
+        const needsUpdate =
+          memberById.name !== user.name ||
+          memberById.avatar_url !== user.avatar
+
+        if (needsUpdate && (user.name || user.avatar)) {
+          const updatedName = user.name || memberById.name
+          const updatedAvatar = user.avatar || memberById.avatar_url
+          await supabase
+            .from("team_members")
+            .update({
+              name: updatedName,
+              avatar_url: updatedAvatar
+            })
+            .eq("id", memberById.id)
+
+          // Update memberOf for immediate display
+          memberOf = { ...memberById, name: updatedName, avatar_url: updatedAvatar }
+        }
       } else if (user.email) {
         // Try by email if user_id not found
         // Get all team members with this email (could be multiple teams)
