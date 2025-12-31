@@ -169,18 +169,34 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }, [])
 
   const handleLogout = async () => {
-    await Swal.fire({
-      icon: "success",
-      title: "Logged Out!",
-      text: "You have been successfully logged out. See you next time!",
-      confirmButtonText: "OK",
-      confirmButtonColor: "#171717",
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Log Out?",
+      text: "Are you sure you want to log out?",
+      showCancelButton: true,
+      confirmButtonText: "Yes, log out",
+      cancelButtonText: "No, stay",
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#171717",
       background: isDark ? "#171717" : "#ffffff",
       color: isDark ? "#ffffff" : "#171717",
     })
-    // Navigate first, then logout to prevent ProtectedRoute from redirecting to /login
-    navigate("/")
-    logout()
+
+    if (result.isConfirmed) {
+      // Navigate first, then logout to prevent ProtectedRoute from redirecting to /login
+      navigate("/")
+      logout()
+
+      await Swal.fire({
+        icon: "success",
+        title: "Logged Out!",
+        text: "You have been successfully logged out. See you next time!",
+        confirmButtonText: "OK",
+        confirmButtonColor: "#171717",
+        background: isDark ? "#171717" : "#ffffff",
+        color: isDark ? "#ffffff" : "#171717",
+      })
+    }
   }
 
   // Use authenticated user data or fallback to demo data

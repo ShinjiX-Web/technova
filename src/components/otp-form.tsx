@@ -117,7 +117,7 @@ export function OTPForm({ onCancel, devOtp: initialDevOtp, ...props }: OTPFormPr
                 </InputOTPGroup>
               </InputOTP>
               <FieldDescription className="text-xs">
-                Check your browser console for the OTP code (demo only).
+                Check your email for the verification code.
               </FieldDescription>
             </Field>
             <FieldGroup className="pt-2">
