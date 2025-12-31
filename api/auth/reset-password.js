@@ -53,7 +53,7 @@ export default async function handler(req, res) {
 
     if (updateError) {
       console.error('Error updating password:', updateError);
-      return res.status(500).json({ error: 'Failed to update password' });
+      return res.status(500).json({ error: updateError.message || 'Failed to update password' });
     }
 
     console.log('✅ Password updated for:', email);

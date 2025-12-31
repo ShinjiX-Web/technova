@@ -259,6 +259,10 @@ export function ForgotPasswordForm({
                       required
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
+                      onCopy={(e) => e.preventDefault()}
+                      onPaste={(e) => e.preventDefault()}
+                      onCut={(e) => e.preventDefault()}
+                      autoComplete="new-password"
                       className="h-10 bg-white dark:bg-neutral-900 border-gray-300 dark:border-neutral-700 pr-10"
                       placeholder="Enter new password"
                     />
@@ -291,6 +295,10 @@ export function ForgotPasswordForm({
                       required
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
+                      onCopy={(e) => e.preventDefault()}
+                      onPaste={(e) => e.preventDefault()}
+                      onCut={(e) => e.preventDefault()}
+                      autoComplete="new-password"
                       className="h-10 bg-white dark:bg-neutral-900 border-gray-300 dark:border-neutral-700 pr-10"
                       placeholder="Confirm new password"
                     />
