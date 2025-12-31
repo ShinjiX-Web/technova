@@ -36,7 +36,7 @@ export function LoginForm({
   const [error, setError] = useState("")
   const [devOtp, setDevOtp] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const { login, pendingAuth, loginWithGoogle, loginWithGitHub } = useAuth()
+  const { login, pendingAuth, loginWithGoogle, loginWithGitHub, isAuthenticated } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -76,8 +76,8 @@ export function LoginForm({
     }
   }
 
-  // Show OTP form if we have pending auth from login
-  if (pendingAuth?.type === "login") {
+  // Show OTP form if we have pending auth from login (but not if already authenticated)
+  if (pendingAuth?.type === "login" && !isAuthenticated) {
     return (
       <div className={cn("flex flex-col gap-6", className)} {...props}>
         <OTPForm devOtp={devOtp} />

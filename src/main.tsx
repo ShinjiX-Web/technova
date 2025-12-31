@@ -39,7 +39,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 // Auth route - redirects to dashboard if already authenticated
 function AuthRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth()
+  const { isAuthenticated, isLoading, cancelOtp } = useAuth()
 
   if (isLoading) {
     return (
@@ -50,6 +50,8 @@ function AuthRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (isAuthenticated) {
+    // Clear any stale pending auth state when user is already authenticated
+    cancelOtp()
     return <Navigate to="/dashboard" replace />
   }
 
