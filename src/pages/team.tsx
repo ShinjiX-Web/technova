@@ -255,12 +255,34 @@ export default function TeamPage() {
 
   const getInitials = (name: string) => name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
 
+  // MS Teams-style status colors
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "Active": return "bg-green-500"
-      case "Away": return "bg-yellow-500"
-      case "Pending": return "bg-blue-500"
-      default: return "bg-gray-400"
+      case "Active":
+      case "Online":
+        return "bg-green-500" // Online - green
+      case "Away":
+        return "bg-amber-500" // Away - orange/amber
+      case "Pending":
+        return "bg-blue-500" // Pending invite - blue
+      case "Offline":
+      default:
+        return "bg-gray-400" // Offline - gray
+    }
+  }
+
+  // Get status icon/indicator style
+  const getStatusIndicator = (status: string) => {
+    switch (status) {
+      case "Active":
+      case "Online":
+        return null // Just the green dot
+      case "Away":
+        return "⏱" // Clock symbol for away
+      case "Offline":
+        return "✕" // X for offline
+      default:
+        return null
     }
   }
 
@@ -401,14 +423,20 @@ export default function TeamPage() {
   }
 
   // Render member card
-  const renderMemberCard = (member: TeamMember, isPending = false) => (
+  const renderMemberCard = (member: TeamMember, isPending = false) => {
+    const statusIcon = getStatusIndicator(member.status)
+
+    return (
     <div key={member.id} className="flex items-center gap-4 p-4 border rounded-lg hover:bg-muted/50 transition-colors">
       <div className="relative">
         <Avatar className="h-12 w-12">
           <AvatarImage src={member.avatar_url || ""} />
           <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
         </Avatar>
-        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-background ${getStatusColor(member.status)}`} />
+        {/* MS Teams-style status indicator */}
+        <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-background ${getStatusColor(member.status)} flex items-center justify-center`}>
+          {statusIcon && <span className="text-[6px] text-white font-bold">{statusIcon}</span>}
+        </div>
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
@@ -437,7 +465,7 @@ export default function TeamPage() {
         </DropdownMenu>
       )}
     </div>
-  )
+  )}
 
   return (
     <SidebarProvider style={{ "--sidebar-width": "calc(var(--spacing) * 72)", "--header-height": "calc(var(--spacing) * 12)" } as React.CSSProperties}>

@@ -17,10 +17,14 @@ import TeamPage from './pages/team.tsx'
 import { ThemeProvider } from './components/ui/theme-provider.tsx'
 import { AuthProvider, useAuth } from './contexts/auth-context.tsx'
 import { WaveBackground } from './components/ui/wave-background.tsx'
+import { usePresence } from './hooks/use-presence.ts'
 
-// Protected route component
+// Protected route component with presence tracking
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
+
+  // Track presence for authenticated users across all protected pages
+  usePresence()
 
   if (isLoading) {
     return (
