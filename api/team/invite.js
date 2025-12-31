@@ -37,7 +37,7 @@ export default async function handler(req, res) {
               <strong>${teamName || 'their team'}</strong> on TechNova as a <strong>${role || 'Member'}</strong>.
             </p>
             <div style="margin: 32px 0;">
-              <a href="https://technova.surf/login"
+              <a href="https://technova.surf/signup"
                  style="background-color: #0f172a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
                 Accept Invitation
               </a>
