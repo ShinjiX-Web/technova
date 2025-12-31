@@ -126,19 +126,21 @@ export default function TeamPage() {
 
         if (memberByEmail) {
           memberOf = memberByEmail
-          // Update the user_id and sync name from their actual profile
+          // Update the user_id and sync name/avatar from their actual profile
           const actualName = user.name || memberByEmail.name
+          const actualAvatar = user.avatar || memberByEmail.avatar_url
           await supabase
             .from("team_members")
             .update({
               user_id: user.id,
               status: "Active",
-              name: actualName // Sync with their Google/Firebase name
+              name: actualName, // Sync with their Google/Firebase name
+              avatar_url: actualAvatar // Sync avatar from their profile
             })
             .eq("id", memberByEmail.id)
 
-          // Update memberOf with the synced name for immediate display
-          memberOf = { ...memberByEmail, name: actualName, status: "Active" }
+          // Update memberOf with the synced data for immediate display
+          memberOf = { ...memberByEmail, name: actualName, avatar_url: actualAvatar, status: "Active" }
         }
       }
 
@@ -146,10 +148,10 @@ export default function TeamPage() {
         // User is a member of another team - show that team
         setIsTeamOwner(false)
 
-        // Get the team owner's profile
+        // Get the team owner's full profile
         const { data: ownerProfile } = await supabase
           .from("profiles")
-          .select("id, name")
+          .select("id, name, email, avatar_url")
           .eq("id", memberOf.owner_id)
           .single()
 
@@ -164,9 +166,24 @@ export default function TeamPage() {
 
         if (teamError) throw teamError
 
+        // Create owner entry to show in the team list (for members viewing)
+        const ownerEntry: TeamMember = {
+          id: `owner-${memberOf.owner_id}`,
+          name: ownerProfile?.name || "Team Owner",
+          email: ownerProfile?.email || "",
+          role: "Admin",
+          position: "Team Owner",
+          avatar_url: ownerProfile?.avatar_url || null,
+          status: "Active",
+          owner_id: memberOf.owner_id,
+          user_id: memberOf.owner_id,
+          created_at: new Date().toISOString(),
+        }
+
         const active = teamData?.filter((m) => m.status !== "Pending") || []
         const pending = teamData?.filter((m) => m.status === "Pending") || []
-        setTeamMembers(active)
+        // Add owner at the beginning of the list
+        setTeamMembers([ownerEntry, ...active])
         setPendingInvites(pending)
       } else {
         // User owns their own team
