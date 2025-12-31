@@ -196,20 +196,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Check if this might be an OAuth user trying to use password login
         // Supabase returns "Invalid login credentials" for OAuth users without password
         if (error.message === 'Invalid login credentials') {
-          // Check if user exists with OAuth provider by attempting to get user info
-          // We'll check the profiles table to see if they signed up with OAuth
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('oauth_provider')
-            .eq('email', normalizedEmail)
-            .maybeSingle()
+          try {
+            // Check if user exists with OAuth provider by attempting to get user info
+            // We'll check the profiles table to see if they signed up with OAuth
+            const { data: profileData, error: profileError } = await supabase
+              .from('profiles')
+              .select('oauth_provider')
+              .eq('email', normalizedEmail)
+              .maybeSingle()
 
-          if (profileData?.oauth_provider) {
-            const providerName = profileData.oauth_provider.charAt(0).toUpperCase() + profileData.oauth_provider.slice(1)
-            return {
-              success: false,
-              error: `This email is linked to ${providerName} sign-in. Please use the "${providerName === 'Google' ? 'Login with Google' : 'Login with GitHub'}" button instead.`
+            // Only check OAuth provider if the query succeeded and we have data
+            if (!profileError && profileData?.oauth_provider) {
+              const providerName = profileData.oauth_provider.charAt(0).toUpperCase() + profileData.oauth_provider.slice(1)
+              return {
+                success: false,
+                error: `This email is linked to ${providerName} sign-in. Please use the "${providerName === 'Google' ? 'Login with Google' : 'Login with GitHub'}" button instead.`
+              }
             }
+          } catch (profileCheckError) {
+            // If profile check fails, just return the original error
+            console.error('Profile check error:', profileCheckError)
           }
         }
 
