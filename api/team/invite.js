@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     const resend = new Resend(resendApiKey);
 
     const { data, error } = await resend.emails.send({
-      from: 'TechNova <noreply@technova-nwdn.vercel.app>',
+      from: 'TechNova <onboarding@resend.dev>',
       to: email,
       subject: `You've been invited to join ${teamName || 'TechNova'}`,
       html: `
