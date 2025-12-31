@@ -119,11 +119,19 @@ export default function TeamPage() {
 
         if (memberByEmail) {
           memberOf = memberByEmail
-          // Update the user_id so future lookups are faster and link the account
+          // Update the user_id and sync name from their actual profile
+          const actualName = user.name || memberByEmail.name
           await supabase
             .from("team_members")
-            .update({ user_id: user.id, status: "Active" })
+            .update({
+              user_id: user.id,
+              status: "Active",
+              name: actualName // Sync with their Google/Firebase name
+            })
             .eq("id", memberByEmail.id)
+
+          // Update memberOf with the synced name for immediate display
+          memberOf = { ...memberByEmail, name: actualName, status: "Active" }
         }
       }
 
@@ -157,9 +165,25 @@ export default function TeamPage() {
         // User owns their own team
         setIsTeamOwner(true)
         setTeamOwnerInfo(null)
+
+        // Create owner entry to show in the team list
+        const ownerEntry: TeamMember = {
+          id: `owner-${user.id}`,
+          name: user.name,
+          email: user.email,
+          role: "Admin",
+          position: "Team Owner",
+          avatar_url: user.avatar || null,
+          status: "Active",
+          owner_id: user.id,
+          user_id: user.id,
+          created_at: new Date().toISOString(),
+        }
+
         const active = ownedTeam?.filter((m) => m.status !== "Pending") || []
         const pending = ownedTeam?.filter((m) => m.status === "Pending") || []
-        setTeamMembers(active)
+        // Add owner at the beginning of the list
+        setTeamMembers([ownerEntry, ...active])
         setPendingInvites(pending)
       }
     } catch (error) {
@@ -329,7 +353,8 @@ export default function TeamPage() {
         {member.position && <p className="text-xs text-muted-foreground">{member.position}</p>}
       </div>
       <Badge variant={member.role === "Admin" ? "destructive" : member.role === "Manager" ? "default" : "secondary"}>{member.role}</Badge>
-      {isTeamOwner && (
+      {/* Don't show edit/delete for the owner's own entry */}
+      {isTeamOwner && member.id !== `owner-${user?.id}` && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon"><IconDotsVertical className="h-4 w-4" /></Button>
