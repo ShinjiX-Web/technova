@@ -1,5 +1,7 @@
 import { useState } from "react"
+import { IconEye, IconEyeOff } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -27,6 +29,8 @@ export function SignupForm({ className, onToggle, ...props }: SignupFormProps) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [error, setError] = useState("")
   const [devOtp, setDevOtp] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -138,14 +142,34 @@ export function SignupForm({ className, onToggle, ...props }: SignupFormProps) {
               </Field>
               <Field>
                 <FieldLabel htmlFor="password" className="text-sm font-medium">Password</FieldLabel>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="h-10 bg-white dark:bg-neutral-900 border-gray-300 dark:border-neutral-700"
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="h-10 bg-white dark:bg-neutral-900 border-gray-300 dark:border-neutral-700 pr-10"
+                  />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {showPassword ? (
+                          <IconEyeOff className="h-4 w-4" />
+                        ) : (
+                          <IconEye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{showPassword ? "Hide password" : "Show password"}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
                 <FieldDescription className="text-xs">
                   Must be at least 8 characters long.
                 </FieldDescription>
@@ -154,14 +178,34 @@ export function SignupForm({ className, onToggle, ...props }: SignupFormProps) {
                 <FieldLabel htmlFor="confirm-password" className="text-sm font-medium">
                   Confirm Password
                 </FieldLabel>
-                <Input
-                  id="confirm-password"
-                  type="password"
-                  required
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="h-10 bg-white dark:bg-neutral-900 border-gray-300 dark:border-neutral-700"
-                />
+                <div className="relative">
+                  <Input
+                    id="confirm-password"
+                    type={showConfirmPassword ? "text" : "password"}
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="h-10 bg-white dark:bg-neutral-900 border-gray-300 dark:border-neutral-700 pr-10"
+                  />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {showConfirmPassword ? (
+                          <IconEyeOff className="h-4 w-4" />
+                        ) : (
+                          <IconEye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{showConfirmPassword ? "Hide password" : "Show password"}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
                 <FieldDescription className="text-xs">
                   Please confirm your password.
                 </FieldDescription>
