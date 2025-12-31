@@ -58,13 +58,20 @@ async function sendOtpEmail(email: string, otp: string, type: "login" | "signup"
   try {
     console.log('📧 Sending OTP email to:', email, 'type:', type);
 
+    // Add timeout to prevent hanging on cold starts
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
     const response = await fetch('/api/auth/send-otp', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ email, otp, type }),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     const data = await response.json().catch(() => ({}));
 
