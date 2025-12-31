@@ -8,6 +8,12 @@ import LandingPage from './pages/landing.tsx'
 import AuthCallback from './pages/auth-callback.tsx'
 import ForgotPassword from './pages/forgot-password.tsx'
 import AccountPage from './pages/account.tsx'
+import BillingPage from './pages/billing.tsx'
+import NotificationsPage from './pages/notifications.tsx'
+import LifecyclePage from './pages/lifecycle.tsx'
+import AnalyticsPage from './pages/analytics.tsx'
+import ProjectsPage from './pages/projects.tsx'
+import TeamPage from './pages/team.tsx'
 import { ThemeProvider } from './components/ui/theme-provider.tsx'
 import { AuthProvider, useAuth } from './contexts/auth-context.tsx'
 import { WaveBackground } from './components/ui/wave-background.tsx'
@@ -91,6 +97,54 @@ createRoot(document.getElementById('root')!).render(
                 element={
                   <ProtectedRoute>
                     <AccountPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/billing"
+                element={
+                  <ProtectedRoute>
+                    <BillingPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/notifications"
+                element={
+                  <ProtectedRoute>
+                    <NotificationsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/lifecycle"
+                element={
+                  <ProtectedRoute>
+                    <LifecyclePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/analytics"
+                element={
+                  <ProtectedRoute>
+                    <AnalyticsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/projects"
+                element={
+                  <ProtectedRoute>
+                    <ProjectsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/team"
+                element={
+                  <ProtectedRoute>
+                    <TeamPage />
                   </ProtectedRoute>
                 }
               />

@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import Swal from "sweetalert2"
 import {
@@ -37,27 +38,27 @@ const data = {
   navMain: [
     {
       title: "Dashboard",
-      url: "#",
+      url: "/dashboard",
       icon: IconDashboard,
     },
     {
       title: "Lifecycle",
-      url: "#",
+      url: "/lifecycle",
       icon: IconListDetails,
     },
     {
       title: "Analytics",
-      url: "#",
+      url: "/analytics",
       icon: IconChartBar,
     },
     {
       title: "Projects",
-      url: "#",
+      url: "/projects",
       icon: IconFolder,
     },
     {
       title: "Team",
-      url: "#",
+      url: "/team",
       icon: IconUsers,
     },
   ],
@@ -149,6 +150,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
 
+  // Track dark mode for theme-aware logo
+  const [isDark, setIsDark] = useState(() =>
+    document.documentElement.classList.contains("dark")
+  )
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"))
+    })
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    })
+
+    return () => observer.disconnect()
+  }, [])
+
   const handleLogout = async () => {
     await Swal.fire({
       icon: "success",
@@ -156,8 +175,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       text: "You have been successfully logged out. See you next time!",
       confirmButtonText: "OK",
       confirmButtonColor: "#171717",
-      background: document.documentElement.classList.contains("dark") ? "#171717" : "#ffffff",
-      color: document.documentElement.classList.contains("dark") ? "#ffffff" : "#171717",
+      background: isDark ? "#171717" : "#ffffff",
+      color: isDark ? "#ffffff" : "#171717",
     })
     // Navigate first, then logout to prevent ProtectedRoute from redirecting to /login
     navigate("/")
@@ -186,9 +205,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               asChild
               className="data-[slot=sidebar-menu-button]:!p-1.5"
             >
-              <a href="#" className="flex items-center gap-3">
-                <img src="/logo.png" alt="Creative Developers" className="!size-10 object-contain" />
-                <span className="text-base font-semibold">Creative Developers</span>
+              <a href="/dashboard" className="flex items-center gap-3">
+                <img
+                  src={isDark ? "/logo_white.svg" : "/logo_black.svg"}
+                  alt="Creative Developers"
+                  className="h-8 w-auto object-contain"
+                />
               </a>
             </SidebarMenuButton>
           </SidebarMenuItem>
