@@ -206,11 +206,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               className="data-[slot=sidebar-menu-button]:!p-1.5"
             >
               <a href="/dashboard" className="flex items-center gap-3">
-                <img
-                  src={isDark ? "/logo_white.svg" : "/logo_black.svg"}
-                  alt="Creative Developers"
-                  className="h-8 w-auto object-contain"
-                />
+                <span className="text-xl font-bold">Technova</span>
               </a>
             </SidebarMenuButton>
           </SidebarMenuItem>
