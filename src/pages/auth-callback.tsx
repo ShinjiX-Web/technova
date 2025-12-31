@@ -34,8 +34,22 @@ export default function AuthCallback() {
 
         if (session) {
           console.log("OAuth session established for:", session.user.email)
-          setStatus("Redirecting to dashboard...")
+          setStatus("Saving profile...")
 
+          // Save OAuth provider to profiles table for detection during email/password login
+          const provider = session.user.app_metadata?.provider
+          if (provider) {
+            await supabase.from('profiles').upsert({
+              id: session.user.id,
+              email: session.user.email,
+              name: session.user.user_metadata?.name || session.user.user_metadata?.full_name || '',
+              avatar_url: session.user.user_metadata?.avatar_url,
+              oauth_provider: provider,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'id' })
+          }
+
+          setStatus("Redirecting to dashboard...")
           // Small delay to ensure the auth context picks up the session
           setTimeout(() => {
             navigate("/dashboard", { replace: true })
@@ -56,6 +70,21 @@ export default function AuthCallback() {
 
             if (data.session) {
               console.log("OAuth session established via code exchange for:", data.session.user.email)
+              setStatus("Saving profile...")
+
+              // Save OAuth provider to profiles table
+              const provider = data.session.user.app_metadata?.provider
+              if (provider) {
+                await supabase.from('profiles').upsert({
+                  id: data.session.user.id,
+                  email: data.session.user.email,
+                  name: data.session.user.user_metadata?.name || data.session.user.user_metadata?.full_name || '',
+                  avatar_url: data.session.user.user_metadata?.avatar_url,
+                  oauth_provider: provider,
+                  updated_at: new Date().toISOString(),
+                }, { onConflict: 'id' })
+              }
+
               setStatus("Redirecting to dashboard...")
               setTimeout(() => {
                 navigate("/dashboard", { replace: true })
