@@ -130,47 +130,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Check for existing session on mount and subscribe to auth changes
   useEffect(() => {
     let isMounted = true
+    let initialSessionHandled = false
 
-    // Get initial session with timeout
-    const initSession = async () => {
-      try {
-        // Add timeout to prevent infinite loading
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Session check timeout')), 10000)
-        )
-
-        const sessionPromise = supabase.auth.getSession()
-
-        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]) as Awaited<typeof sessionPromise>
-
-        if (session?.user && isMounted) {
-          const profile = await getProfile(session.user)
-          if (isMounted) {
-            setUser(profile)
-          }
-        }
-      } catch (error) {
-        console.error('Error getting session:', error)
-      } finally {
-        if (isMounted) {
-          setIsLoading(false)
-        }
-      }
-    }
-
-    initSession()
-
-    // Subscribe to auth changes
+    // Subscribe to auth changes FIRST (before getSession)
+    // This ensures we don't miss any events
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', event, session?.user?.email)
 
+      // Mark that we've handled the initial session
+      if (event === 'INITIAL_SESSION') {
+        initialSessionHandled = true
+      }
+
       // Handle session establishment (login, OAuth callback, token refresh)
       if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && session?.user && isMounted) {
-        const profile = await getProfile(session.user)
-        if (isMounted) {
-          setUser(profile)
-          setPendingAuth(null)
-          setIsLoading(false)
+        try {
+          const profile = await getProfile(session.user)
+          if (isMounted) {
+            setUser(profile)
+            setPendingAuth(null)
+            setIsLoading(false)
+          }
+        } catch (error) {
+          console.error('Error getting profile:', error)
+          // Still set the user with basic info even if profile fetch fails
+          if (isMounted) {
+            setUser({
+              id: session.user.id,
+              name: session.user.user_metadata?.name || session.user.user_metadata?.full_name || '',
+              email: session.user.email || '',
+              avatar: session.user.user_metadata?.avatar_url,
+              provider: session.user.app_metadata?.provider,
+            })
+            setIsLoading(false)
+          }
         }
       } else if (event === 'INITIAL_SESSION' && !session && isMounted) {
         // No existing session found on page load
@@ -181,8 +174,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })
 
+    // Fallback: If INITIAL_SESSION doesn't fire within 3 seconds, manually check
+    const fallbackTimeout = setTimeout(async () => {
+      if (!initialSessionHandled && isMounted) {
+        console.log('Fallback: checking session manually')
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.user && isMounted) {
+            const profile = await getProfile(session.user)
+            if (isMounted) {
+              setUser(profile)
+              setIsLoading(false)
+            }
+          } else if (isMounted) {
+            setIsLoading(false)
+          }
+        } catch (error) {
+          console.error('Fallback session check error:', error)
+          if (isMounted) {
+            setIsLoading(false)
+          }
+        }
+      }
+    }, 3000)
+
     return () => {
       isMounted = false
+      clearTimeout(fallbackTimeout)
       subscription.unsubscribe()
     }
   }, [])
@@ -288,7 +306,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.user) {
         // Check if email already exists (identities will be empty)
         if (data.user.identities?.length === 0) {
-          return { success: false, error: "An account with this email already exists" }
+          return { success: false, error: "An account with this email already exists. Please sign in instead, or use 'Forgot password' if you don't remember your password." }
         }
 
         // Sign out - we'll sign them in after OTP verification
@@ -351,6 +369,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               email: pendingAuth.email,
               updated_at: new Date().toISOString(),
             })
+
+            // Link any pending team invitations to this user
+            await supabase
+              .from('team_members')
+              .update({
+                user_id: data.user.id,
+                status: 'Active'
+              })
+              .eq('email', pendingAuth.email.toLowerCase())
+              .eq('status', 'Pending')
           }
 
           const profile = await getProfile(data.user)

@@ -45,6 +45,7 @@ interface TeamMember {
   avatar_url: string | null
   status: "Active" | "Away" | "Offline" | "Pending"
   owner_id: string
+  user_id?: string | null
   created_at: string
 }
 
@@ -72,22 +73,65 @@ export default function TeamPage() {
   const isDark = document.documentElement.classList.contains("dark")
   const getSwalTheme = () => ({ background: isDark ? "#171717" : "#ffffff", color: isDark ? "#ffffff" : "#171717" })
 
+  // Check if user is a team owner or a member of someone else's team
+  const [isTeamOwner, setIsTeamOwner] = useState(true)
+  const [teamOwnerInfo, setTeamOwnerInfo] = useState<{ id: string; name: string } | null>(null)
+
   // Fetch team members
   const fetchTeamMembers = async () => {
     if (!user) return
     try {
-      const { data, error } = await supabase
+      // First check if user owns a team (has invited others)
+      const { data: ownedTeam, error: ownedError } = await supabase
         .from("team_members")
         .select("*")
         .eq("owner_id", user.id)
         .order("created_at", { ascending: false })
 
-      if (error) throw error
+      if (ownedError) throw ownedError
 
-      const active = data?.filter((m) => m.status !== "Pending") || []
-      const pending = data?.filter((m) => m.status === "Pending") || []
-      setTeamMembers(active)
-      setPendingInvites(pending)
+      // Check if user is a member of someone else's team
+      const { data: memberOf, error: memberError } = await supabase
+        .from("team_members")
+        .select("*")
+        .eq("user_id", user.id)
+        .single()
+
+      if (memberOf && !memberError) {
+        // User is a member of another team - show that team
+        setIsTeamOwner(false)
+
+        // Get the team owner's profile
+        const { data: ownerProfile } = await supabase
+          .from("profiles")
+          .select("id, name")
+          .eq("id", memberOf.owner_id)
+          .single()
+
+        setTeamOwnerInfo(ownerProfile)
+
+        // Get all members of that team
+        const { data: teamData, error: teamError } = await supabase
+          .from("team_members")
+          .select("*")
+          .eq("owner_id", memberOf.owner_id)
+          .order("created_at", { ascending: false })
+
+        if (teamError) throw teamError
+
+        const active = teamData?.filter((m) => m.status !== "Pending") || []
+        const pending = teamData?.filter((m) => m.status === "Pending") || []
+        setTeamMembers(active)
+        setPendingInvites(pending)
+      } else {
+        // User owns their own team
+        setIsTeamOwner(true)
+        setTeamOwnerInfo(null)
+        const active = ownedTeam?.filter((m) => m.status !== "Pending") || []
+        const pending = ownedTeam?.filter((m) => m.status === "Pending") || []
+        setTeamMembers(active)
+        setPendingInvites(pending)
+      }
     } catch (error) {
       console.error("Error fetching team members:", error)
     } finally {
@@ -240,24 +284,27 @@ export default function TeamPage() {
         <div className="flex items-center gap-2">
           <p className="font-medium">{member.name}</p>
           {isPending && <Badge variant="outline" className="text-xs">Pending</Badge>}
+          {member.user_id === user?.id && <Badge variant="outline" className="text-xs bg-primary/10">You</Badge>}
         </div>
         <p className="text-sm text-muted-foreground">{member.email}</p>
         {member.position && <p className="text-xs text-muted-foreground">{member.position}</p>}
       </div>
       <Badge variant={member.role === "Admin" ? "destructive" : member.role === "Manager" ? "default" : "secondary"}>{member.role}</Badge>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon"><IconDotsVertical className="h-4 w-4" /></Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => openEditDialog(member)}><IconEdit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
-          {isPending && (
-            <DropdownMenuItem onClick={() => handleResendInvite(member)}><IconSend className="mr-2 h-4 w-4" />Resend Invite</DropdownMenuItem>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => handleDelete(member)} className="text-destructive"><IconTrash className="mr-2 h-4 w-4" />Remove</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {isTeamOwner && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon"><IconDotsVertical className="h-4 w-4" /></Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => openEditDialog(member)}><IconEdit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
+            {isPending && (
+              <DropdownMenuItem onClick={() => handleResendInvite(member)}><IconSend className="mr-2 h-4 w-4" />Resend Invite</DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => handleDelete(member)} className="text-destructive"><IconTrash className="mr-2 h-4 w-4" />Remove</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   )
 
@@ -270,12 +317,18 @@ export default function TeamPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold">Team</h1>
-              <p className="text-muted-foreground">Manage your team members and their roles</p>
+              <p className="text-muted-foreground">
+                {isTeamOwner
+                  ? "Manage your team members and their roles"
+                  : `You are a member of ${teamOwnerInfo?.name || "a team"}'s organization`}
+              </p>
             </div>
-            <Button onClick={() => setIsInviteOpen(true)}>
-              <IconUserPlus className="mr-2 h-4 w-4" />
-              Invite Member
-            </Button>
+            {isTeamOwner && (
+              <Button onClick={() => setIsInviteOpen(true)}>
+                <IconUserPlus className="mr-2 h-4 w-4" />
+                Invite Member
+              </Button>
+            )}
           </div>
 
           {/* Team Stats */}
