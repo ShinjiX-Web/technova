@@ -43,6 +43,7 @@ interface AuthContextType {
   requestPasswordReset: (email: string) => Promise<AuthResult>
   verifyResetOtp: (code: string) => Promise<boolean>
   resetPassword: (newPassword: string) => Promise<{ success: boolean; error?: string }>
+  updateUserProfile: (updates: Partial<Pick<User, 'name' | 'avatar'>>) => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -377,6 +378,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
+  // Update user profile in context (for real-time UI updates)
+  const updateUserProfile = (updates: Partial<Pick<User, 'name' | 'avatar'>>) => {
+    if (user) {
+      setUser({
+        ...user,
+        ...updates,
+      })
+    }
+  }
+
   // OAuth login with Google
   const loginWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
     try {
@@ -527,6 +538,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         requestPasswordReset,
         verifyResetOtp,
         resetPassword,
+        updateUserProfile,
       }}
     >
       {children}

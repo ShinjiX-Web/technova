@@ -23,7 +23,7 @@ const getSwalTheme = (isDark: boolean) => ({
 
 export default function AccountPage() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, updateUserProfile } = useAuth()
   const { theme } = useTheme()
   const [isSaving, setIsSaving] = useState(false)
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
@@ -158,6 +158,12 @@ export default function AccountPage() {
           full_name: formData.name,
           avatar_url: formData.avatar_url,
         }
+      })
+
+      // Update the auth context for real-time UI updates (sidebar avatar, etc.)
+      updateUserProfile({
+        name: formData.name,
+        avatar: formData.avatar_url,
       })
 
       Swal.fire({
