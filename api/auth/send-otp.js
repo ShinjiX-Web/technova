@@ -27,7 +27,7 @@ export default async function handler(req, res) {
         'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: 'TechNova <onboarding@resend.dev>',
+        from: 'TechNova <noreply@technova.surf>',
         to: [email],
         subject: type === 'signup'
           ? 'Welcome to TechNova - Verify your email'

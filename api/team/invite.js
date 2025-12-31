@@ -23,7 +23,7 @@ export default async function handler(req, res) {
         'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: 'TechNova <onboarding@resend.dev>',
+        from: 'TechNova <noreply@technova.surf>',
         to: [email],
         subject: `You've been invited to join ${teamName || 'TechNova'}`,
         html: `
@@ -37,7 +37,7 @@ export default async function handler(req, res) {
               <strong>${teamName || 'their team'}</strong> on TechNova as a <strong>${role || 'Member'}</strong>.
             </p>
             <div style="margin: 32px 0;">
-              <a href="https://technova-nwdn.vercel.app/login"
+              <a href="https://technova.surf/login"
                  style="background-color: #0f172a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
                 Accept Invitation
               </a>
