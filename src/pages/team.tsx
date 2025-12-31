@@ -169,14 +169,19 @@ export default function TeamPage() {
 
       if (insertError) throw insertError
 
-      // Send invitation email
+      // Send invitation email with timeout
       let emailSent = false
       try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
+
         const emailRes = await fetch("/api/team/invite", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email: inviteForm.email, inviterName: user?.name, teamName: "TechNova", role: inviteForm.role }),
+          signal: controller.signal,
         })
+        clearTimeout(timeoutId)
         emailSent = emailRes.ok
       } catch (emailError) {
         console.error("Failed to send invite email:", emailError)

@@ -16,12 +16,17 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Add timeout to prevent hanging
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
       },
+      signal: controller.signal,
       body: JSON.stringify({
         from: 'TechNova <noreply@technova.surf>',
         to: [email],
@@ -54,6 +59,7 @@ export default async function handler(req, res) {
       }),
     });
 
+    clearTimeout(timeoutId);
     const data = await response.json();
 
     if (!response.ok) {

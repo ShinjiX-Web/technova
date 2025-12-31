@@ -57,6 +57,7 @@ function generateOtp(): string {
 async function sendOtpEmail(email: string, otp: string, type: "login" | "signup" | "reset-password"): Promise<{ success: boolean; fallback: boolean }> {
   try {
     console.log('📧 Sending OTP email to:', email, 'type:', type);
+    console.trace('📧 sendOtpEmail called from:');
 
     // Add timeout to prevent hanging on cold starts
     const controller = new AbortController();
@@ -92,17 +93,23 @@ async function sendOtpEmail(email: string, otp: string, type: "login" | "signup"
   }
 }
 
-// Helper to convert Supabase user to our User type
+// Helper to convert Supabase user to our User type with timeout
 async function getProfile(supabaseUser: SupabaseUser): Promise<User> {
   let profile = null
 
   try {
-    // Try to get profile from profiles table with timeout
-    const { data, error } = await supabase
+    // Try to get profile from profiles table with 5 second timeout
+    const profilePromise = supabase
       .from('profiles')
       .select('*')
       .eq('id', supabaseUser.id)
       .single()
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
+    )
+
+    const { data, error } = await Promise.race([profilePromise, timeoutPromise])
 
     if (!error) {
       profile = data
@@ -130,43 +137,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Check for existing session on mount and subscribe to auth changes
   useEffect(() => {
     let isMounted = true
-    let initialSessionHandled = false
+    let sessionHandled = false
+
+    // Helper to set user from session
+    const setUserFromSession = async (session: { user: SupabaseUser }) => {
+      if (!isMounted) return
+
+      try {
+        const profile = await getProfile(session.user)
+        if (isMounted) {
+          setUser(profile)
+          setPendingAuth(null)
+          setIsLoading(false)
+        }
+      } catch (error) {
+        console.error('Error getting profile:', error)
+        // Still set the user with basic info even if profile fetch fails
+        if (isMounted) {
+          setUser({
+            id: session.user.id,
+            name: session.user.user_metadata?.name || session.user.user_metadata?.full_name || '',
+            email: session.user.email || '',
+            avatar: session.user.user_metadata?.avatar_url,
+            provider: session.user.app_metadata?.provider,
+          })
+          setIsLoading(false)
+        }
+      }
+    }
 
     // Subscribe to auth changes FIRST (before getSession)
-    // This ensures we don't miss any events
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', event, session?.user?.email)
 
-      // Mark that we've handled the initial session
-      if (event === 'INITIAL_SESSION') {
-        initialSessionHandled = true
-      }
-
-      // Handle session establishment (login, OAuth callback, token refresh)
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && session?.user && isMounted) {
-        try {
-          const profile = await getProfile(session.user)
-          if (isMounted) {
-            setUser(profile)
-            setPendingAuth(null)
-            setIsLoading(false)
-          }
-        } catch (error) {
-          console.error('Error getting profile:', error)
-          // Still set the user with basic info even if profile fetch fails
-          if (isMounted) {
-            setUser({
-              id: session.user.id,
-              name: session.user.user_metadata?.name || session.user.user_metadata?.full_name || '',
-              email: session.user.email || '',
-              avatar: session.user.user_metadata?.avatar_url,
-              provider: session.user.app_metadata?.provider,
-            })
-            setIsLoading(false)
-          }
-        }
+      // Handle any event that establishes a session
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && session?.user) {
+        sessionHandled = true
+        await setUserFromSession(session)
       } else if (event === 'INITIAL_SESSION' && !session && isMounted) {
         // No existing session found on page load
+        sessionHandled = true
         setIsLoading(false)
       } else if (event === 'SIGNED_OUT' && isMounted) {
         setUser(null)
@@ -174,18 +184,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })
 
-    // Fallback: If INITIAL_SESSION doesn't fire within 3 seconds, manually check
+    // Fallback: If no session event fires within 2 seconds, manually check
     const fallbackTimeout = setTimeout(async () => {
-      if (!initialSessionHandled && isMounted) {
+      if (!sessionHandled && isMounted) {
         console.log('Fallback: checking session manually')
         try {
           const { data: { session } } = await supabase.auth.getSession()
           if (session?.user && isMounted) {
-            const profile = await getProfile(session.user)
-            if (isMounted) {
-              setUser(profile)
-              setIsLoading(false)
-            }
+            await setUserFromSession(session)
           } else if (isMounted) {
             setIsLoading(false)
           }
@@ -196,7 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       }
-    }, 3000)
+    }, 2000)
 
     return () => {
       isMounted = false
@@ -206,6 +212,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = async (email: string, password: string): Promise<AuthResult> => {
+    console.log('🔐 LOGIN called for:', email)
     const normalizedEmail = email.toLowerCase().trim()
 
     try {
@@ -283,6 +290,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signup = async (name: string, email: string, password: string): Promise<AuthResult> => {
+    console.log('🔐 SIGNUP called for:', email)
     const normalizedEmail = email.toLowerCase().trim()
 
     try {
