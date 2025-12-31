@@ -86,12 +86,24 @@ async function sendOtpEmail(email: string, otp: string, type: "login" | "signup"
 
 // Helper to convert Supabase user to our User type
 async function getProfile(supabaseUser: SupabaseUser): Promise<User> {
-  // Try to get profile from profiles table
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', supabaseUser.id)
-    .single()
+  let profile = null
+
+  try {
+    // Try to get profile from profiles table with timeout
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', supabaseUser.id)
+      .single()
+
+    if (!error) {
+      profile = data
+    } else {
+      console.log('Profile not found or error:', error.message)
+    }
+  } catch (err) {
+    console.error('Error fetching profile:', err)
+  }
 
   return {
     id: supabaseUser.id,
@@ -109,18 +121,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check for existing session on mount and subscribe to auth changes
   useEffect(() => {
-    // Get initial session
+    let isMounted = true
+
+    // Get initial session with timeout
     const initSession = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (session?.user) {
+        // Add timeout to prevent infinite loading
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Session check timeout')), 10000)
+        )
+
+        const sessionPromise = supabase.auth.getSession()
+
+        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]) as Awaited<typeof sessionPromise>
+
+        if (session?.user && isMounted) {
           const profile = await getProfile(session.user)
-          setUser(profile)
+          if (isMounted) {
+            setUser(profile)
+          }
         }
       } catch (error) {
         console.error('Error getting session:', error)
       } finally {
-        setIsLoading(false)
+        if (isMounted) {
+          setIsLoading(false)
+        }
       }
     }
 
@@ -130,16 +156,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', event, session?.user?.email)
 
-      if (event === 'SIGNED_IN' && session?.user) {
+      if (event === 'SIGNED_IN' && session?.user && isMounted) {
         const profile = await getProfile(session.user)
-        setUser(profile)
-        setPendingAuth(null)
-      } else if (event === 'SIGNED_OUT') {
+        if (isMounted) {
+          setUser(profile)
+          setPendingAuth(null)
+        }
+      } else if (event === 'SIGNED_OUT' && isMounted) {
         setUser(null)
       }
     })
 
     return () => {
+      isMounted = false
       subscription.unsubscribe()
     }
   }, [])
