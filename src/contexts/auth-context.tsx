@@ -15,6 +15,7 @@ interface PendingAuth {
   email: string
   name?: string
   password?: string
+  otpCode: string  // Our custom OTP code
 }
 
 // Auth result type
@@ -22,7 +23,7 @@ interface AuthResult {
   success: boolean
   needsOtp?: boolean
   error?: string
-  devOtp?: string  // For development: not used with Supabase
+  devOtp?: string  // For development: show OTP when email fails
 }
 
 interface AuthContextType {
@@ -45,6 +46,43 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+// Generate a random 6-digit OTP
+function generateOtp(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString()
+}
+
+// Send OTP email via Resend API - returns { success, fallback } where fallback=true means show OTP in UI
+async function sendOtpEmail(email: string, otp: string, type: "login" | "signup" | "reset-password"): Promise<{ success: boolean; fallback: boolean }> {
+  try {
+    console.log('📧 Sending OTP email to:', email, 'type:', type);
+
+    const response = await fetch('/api/auth/send-otp', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, otp, type }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      console.error('Failed to send OTP email:', response.status, data);
+      // Return fallback mode - email failed but we can still show OTP for testing
+      console.log('🔑 [DEV MODE] OTP code:', otp);
+      return { success: false, fallback: true };
+    }
+
+    console.log('✅ OTP email sent successfully');
+    return { success: true, fallback: false };
+  } catch (error) {
+    console.error('Error sending OTP email:', error);
+    // Return fallback mode on network errors too
+    console.log('🔑 [DEV MODE] OTP code:', otp);
+    return { success: false, fallback: true };
+  }
+}
 
 // Helper to convert Supabase user to our User type
 async function getProfile(supabaseUser: SupabaseUser): Promise<User> {
@@ -110,6 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const normalizedEmail = email.toLowerCase().trim()
 
     try {
+      // First verify credentials with Supabase
       const { data, error } = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
         password,
@@ -121,9 +160,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (data.user) {
-        const profile = await getProfile(data.user)
-        setUser(profile)
-        return { success: true }
+        // Credentials valid - sign out temporarily and require OTP
+        await supabase.auth.signOut()
+
+        // Generate and send OTP via Resend
+        const otpCode = generateOtp()
+        const emailResult = await sendOtpEmail(normalizedEmail, otpCode, "login")
+
+        setPendingAuth({
+          type: "login",
+          email: normalizedEmail,
+          password,
+          otpCode,
+        })
+
+        // If email failed but fallback is enabled, return with devOtp for testing
+        if (!emailResult.success && emailResult.fallback) {
+          return { success: true, needsOtp: true, devOtp: otpCode }
+        }
+
+        return { success: true, needsOtp: true }
       }
 
       return { success: false, error: "Login failed" }
@@ -137,7 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const normalizedEmail = email.toLowerCase().trim()
 
     try {
-      // Sign up with Supabase - this will send a confirmation email automatically
+      // Sign up with Supabase - we'll use our own OTP via Resend
       const { data, error } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
@@ -146,7 +202,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             name: name,
             full_name: name,
           },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       })
 
@@ -156,32 +211,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (data.user) {
-        // Check if email confirmation is required
+        // Check if email already exists (identities will be empty)
         if (data.user.identities?.length === 0) {
           return { success: false, error: "An account with this email already exists" }
         }
 
-        // If session exists, user is logged in (email confirmation disabled)
-        if (data.session) {
-          // Create profile in profiles table
-          await supabase.from('profiles').upsert({
-            id: data.user.id,
-            name: name,
-            email: normalizedEmail,
-            updated_at: new Date().toISOString(),
-          })
+        // Sign out - we'll sign them in after OTP verification
+        await supabase.auth.signOut()
 
-          const profile = await getProfile(data.user)
-          setUser(profile)
-          return { success: true }
-        }
+        // Generate and send OTP via Resend
+        const otpCode = generateOtp()
+        const emailResult = await sendOtpEmail(normalizedEmail, otpCode, "signup")
 
-        // Email confirmation required - set pending auth
         setPendingAuth({
           type: "signup",
           email: normalizedEmail,
           name,
+          password,
+          otpCode,
         })
+
+        // If email failed but fallback is enabled, return with devOtp for testing
+        if (!emailResult.success && emailResult.fallback) {
+          return { success: true, needsOtp: true, devOtp: otpCode }
+        }
+
         return { success: true, needsOtp: true }
       }
 
@@ -195,34 +249,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const verifyOtp = async (code: string): Promise<boolean> => {
     if (!pendingAuth) return false
 
+    // Verify our custom OTP code
+    if (code !== pendingAuth.otpCode) {
+      return false
+    }
+
     try {
-      // Verify OTP with Supabase
-      const { data, error } = await supabase.auth.verifyOtp({
-        email: pendingAuth.email,
-        token: code,
-        type: pendingAuth.type === 'signup' ? 'signup' : 'email',
-      })
+      if (pendingAuth.type === "signup" || pendingAuth.type === "login") {
+        // Sign in with Supabase using stored credentials
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: pendingAuth.email,
+          password: pendingAuth.password!,
+        })
 
-      if (error) {
-        console.error('OTP verification error:', error)
-        return false
-      }
-
-      if (data.user) {
-        // Create/update profile if signup
-        if (pendingAuth.type === 'signup' && pendingAuth.name) {
-          await supabase.from('profiles').upsert({
-            id: data.user.id,
-            name: pendingAuth.name,
-            email: pendingAuth.email,
-            updated_at: new Date().toISOString(),
-          })
+        if (error) {
+          console.error('Sign in after OTP error:', error)
+          return false
         }
 
-        const profile = await getProfile(data.user)
-        setUser(profile)
-        setPendingAuth(null)
-        return true
+        if (data.user) {
+          // Create/update profile if signup
+          if (pendingAuth.type === 'signup' && pendingAuth.name) {
+            await supabase.from('profiles').upsert({
+              id: data.user.id,
+              name: pendingAuth.name,
+              email: pendingAuth.email,
+              updated_at: new Date().toISOString(),
+            })
+          }
+
+          const profile = await getProfile(data.user)
+          setUser(profile)
+          setPendingAuth(null)
+          return true
+        }
       }
 
       return false
@@ -234,17 +294,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resendOtp = async (): Promise<{ devOtp?: string }> => {
     if (pendingAuth) {
-      try {
-        const { error } = await supabase.auth.resend({
-          type: pendingAuth.type === 'signup' ? 'signup' : 'email_change',
-          email: pendingAuth.email,
-        })
+      // Generate new OTP and send via Resend
+      const newOtp = generateOtp()
+      const emailResult = await sendOtpEmail(pendingAuth.email, newOtp, pendingAuth.type)
 
-        if (error) {
-          console.error('Resend OTP error:', error)
-        }
-      } catch (error) {
-        console.error('Resend OTP error:', error)
+      setPendingAuth({ ...pendingAuth, otpCode: newOtp })
+
+      // Return devOtp if email failed for testing
+      if (!emailResult.success && emailResult.fallback) {
+        return { devOtp: newOtp }
       }
     }
     return {}
@@ -312,24 +370,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Supabase handles this automatically via onAuthStateChange
   }
 
-  // Request password reset - sends reset email via Supabase
+  // Request password reset - sends OTP via Resend
   const requestPasswordReset = async (email: string): Promise<AuthResult> => {
     const normalizedEmail = email.toLowerCase().trim()
 
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-        redirectTo: `${window.location.origin}/auth/reset-password`,
-      })
+      // Check if user exists by looking up in profiles table
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', normalizedEmail)
+        .single()
 
-      if (error) {
-        console.error('Password reset error:', error)
-        return { success: false, error: error.message }
+      if (profileError || !profile) {
+        return { success: false, error: "No account found with this email address" }
       }
+
+      // Generate and send OTP via Resend
+      const otpCode = generateOtp()
+      const emailResult = await sendOtpEmail(normalizedEmail, otpCode, "reset-password")
 
       setPendingAuth({
         type: "reset-password",
         email: normalizedEmail,
+        otpCode,
       })
+
+      // If email failed but fallback is enabled, return with devOtp for testing
+      if (!emailResult.success && emailResult.fallback) {
+        return { success: true, devOtp: otpCode }
+      }
 
       return { success: true }
     } catch (error) {
@@ -338,39 +408,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Verify reset OTP - with Supabase, user clicks link in email which handles verification
+  // Verify reset OTP - our custom OTP verification
   const verifyResetOtp = async (code: string): Promise<boolean> => {
     if (!pendingAuth || pendingAuth.type !== "reset-password") return false
 
-    try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email: pendingAuth.email,
-        token: code,
-        type: 'recovery',
-      })
-
-      if (error) {
-        console.error('Reset OTP verification error:', error)
-        return false
-      }
-
-      return !!data.user
-    } catch (error) {
-      console.error('Reset OTP verification error:', error)
-      return false
-    }
+    // Verify our custom OTP code
+    return code === pendingAuth.otpCode
   }
 
-  // Reset password after OTP verification (or after clicking email link)
+  // Reset password after OTP verification
   const resetPassword = async (newPassword: string): Promise<{ success: boolean; error?: string }> => {
+    if (!pendingAuth || pendingAuth.type !== "reset-password") {
+      return { success: false, error: "No password reset in progress" }
+    }
+
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
+      // Call server-side API to reset password using Supabase Admin
+      const response = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: pendingAuth.email,
+          newPassword,
+        }),
       })
 
-      if (error) {
-        console.error('Password update error:', error)
-        return { success: false, error: error.message }
+      const data = await response.json()
+
+      if (!response.ok) {
+        console.error('Password reset error:', data)
+        return { success: false, error: data.error || 'Failed to reset password' }
       }
 
       setPendingAuth(null)
