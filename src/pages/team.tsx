@@ -47,6 +47,10 @@ interface TeamMember {
   owner_id: string
   user_id?: string | null
   created_at: string
+  // Owner info for display (stored when invite is created)
+  owner_name?: string | null
+  owner_email?: string | null
+  owner_avatar?: string | null
 }
 
 // Available roles and positions
@@ -148,16 +152,7 @@ export default function TeamPage() {
         // User is a member of another team - show that team
         setIsTeamOwner(false)
 
-        // Get the team owner's full profile
-        const { data: ownerProfile } = await supabase
-          .from("profiles")
-          .select("id, name, email, avatar_url")
-          .eq("id", memberOf.owner_id)
-          .single()
-
-        setTeamOwnerInfo(ownerProfile)
-
-        // Get all members of that team
+        // Get all members of that team first (includes owner info potentially)
         const { data: teamData, error: teamError } = await supabase
           .from("team_members")
           .select("*")
@@ -166,14 +161,32 @@ export default function TeamPage() {
 
         if (teamError) throw teamError
 
+        // Try to get owner's profile - first by firebase_uid, then by id
+        let ownerProfile = null
+
+        // Try by email from any existing team member that might have owner's email
+        // Or try the profiles table by id (for Supabase auth users)
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("id, name, email, avatar_url")
+          .eq("id", memberOf.owner_id)
+          .single()
+
+        if (profileData) {
+          ownerProfile = profileData
+        }
+
+        setTeamOwnerInfo(ownerProfile)
+
         // Create owner entry to show in the team list (for members viewing)
+        // Use owner profile data if available, otherwise we need to get it from somewhere
         const ownerEntry: TeamMember = {
           id: `owner-${memberOf.owner_id}`,
-          name: ownerProfile?.name || "Team Owner",
-          email: ownerProfile?.email || "",
+          name: ownerProfile?.name || memberOf.owner_name || "Team Owner",
+          email: ownerProfile?.email || memberOf.owner_email || "",
           role: "Admin",
           position: "Team Owner",
-          avatar_url: ownerProfile?.avatar_url || null,
+          avatar_url: ownerProfile?.avatar_url || memberOf.owner_avatar || null,
           status: "Active",
           owner_id: memberOf.owner_id,
           user_id: memberOf.owner_id,
@@ -240,11 +253,22 @@ export default function TeamPage() {
     }
     setIsSaving(true)
     try {
-      // Create team member record
+      // Create team member record with owner info for display
       console.log("Inserting team member with owner_id:", user?.id)
       const { data: insertData, error: insertError } = await supabase
         .from("team_members")
-        .insert({ owner_id: user?.id, name: inviteForm.name, email: inviteForm.email.toLowerCase(), role: inviteForm.role, position: inviteForm.position, status: "Pending" })
+        .insert({
+          owner_id: user?.id,
+          name: inviteForm.name,
+          email: inviteForm.email.toLowerCase(),
+          role: inviteForm.role,
+          position: inviteForm.position,
+          status: "Pending",
+          // Store owner info so team members can see who owns the team
+          owner_name: user?.name,
+          owner_email: user?.email,
+          owner_avatar: user?.avatar
+        })
         .select()
 
       console.log("Insert result:", { insertData, insertError })
