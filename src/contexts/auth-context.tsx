@@ -164,8 +164,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setPendingAuth(null)
           setIsLoading(false)
         }
+      } else if (event === 'INITIAL_SESSION' && !session && isMounted) {
+        // No existing session found on page load
+        setIsLoading(false)
       } else if (event === 'SIGNED_OUT' && isMounted) {
         setUser(null)
+        setIsLoading(false)
       }
     })
 

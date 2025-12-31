@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
@@ -9,20 +9,111 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/contexts/auth-context"
+import { useTheme } from "@/components/ui/theme-provider"
 import { supabase } from "@/lib/supabase"
 import Swal from "sweetalert2"
-import { IconArrowLeft, IconLoader2 } from "@tabler/icons-react"
+import { IconArrowLeft, IconLoader2, IconCamera, IconTrash } from "@tabler/icons-react"
+
+// Helper to get SweetAlert theme options
+const getSwalTheme = (isDark: boolean) => ({
+  background: isDark ? '#171717' : '#ffffff',
+  color: isDark ? '#ffffff' : '#171717',
+  confirmButtonColor: isDark ? '#3b82f6' : '#2563eb',
+})
 
 export default function AccountPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { theme } = useTheme()
   const [isSaving, setIsSaving] = useState(false)
-  
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Determine if we're in dark mode
+  const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
+
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     avatar_url: "",
   })
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !user) return
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      Swal.fire({
+        icon: "error",
+        title: "Invalid File",
+        text: "Please upload an image file.",
+        ...getSwalTheme(isDark),
+      })
+      return
+    }
+
+    // Validate file size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      Swal.fire({
+        icon: "error",
+        title: "File Too Large",
+        text: "Please upload an image smaller than 2MB.",
+        ...getSwalTheme(isDark),
+      })
+      return
+    }
+
+    setIsUploadingAvatar(true)
+    try {
+      // Create a unique filename
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`
+      const filePath = `avatars/${fileName}`
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true })
+
+      if (uploadError) throw uploadError
+
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath)
+
+      // Update the form data with the new avatar URL
+      setFormData(prev => ({ ...prev, avatar_url: publicUrl }))
+
+      Swal.fire({
+        icon: "success",
+        title: "Avatar Uploaded",
+        text: "Your profile picture has been updated. Click Save to confirm.",
+        timer: 2000,
+        showConfirmButton: false,
+        ...getSwalTheme(isDark),
+      })
+    } catch (error: any) {
+      console.error('Error uploading avatar:', error)
+      Swal.fire({
+        icon: "error",
+        title: "Upload Failed",
+        text: error.message || "Failed to upload avatar",
+        ...getSwalTheme(isDark),
+      })
+    } finally {
+      setIsUploadingAvatar(false)
+      // Reset the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleRemoveAvatar = () => {
+    setFormData(prev => ({ ...prev, avatar_url: '' }))
+  }
 
   // Load user data on mount
   useEffect(() => {
@@ -75,6 +166,7 @@ export default function AccountPage() {
         text: "Your account information has been saved.",
         timer: 2000,
         showConfirmButton: false,
+        ...getSwalTheme(isDark),
       })
     } catch (error: any) {
       console.error('Error saving profile:', error)
@@ -82,6 +174,7 @@ export default function AccountPage() {
         icon: "error",
         title: "Error",
         text: error.message || "Failed to save profile",
+        ...getSwalTheme(isDark),
       })
     } finally {
       setIsSaving(false)
@@ -139,21 +232,56 @@ export default function AccountPage() {
               <CardContent className="space-y-6">
                 {/* Avatar Section */}
                 <div className="flex items-center gap-4">
-                  <Avatar className="h-20 w-20">
-                    <AvatarImage src={formData.avatar_url} alt={formData.name} />
-                    <AvatarFallback className="text-lg">
-                      {getInitials(formData.name || "U")}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1">
-                    <Label htmlFor="avatar_url">Avatar URL</Label>
-                    <Input
-                      id="avatar_url"
-                      name="avatar_url"
-                      value={formData.avatar_url}
-                      onChange={handleChange}
-                      placeholder="https://example.com/avatar.jpg"
-                    />
+                  <div className="relative">
+                    <Avatar className="h-20 w-20">
+                      <AvatarImage src={formData.avatar_url} alt={formData.name} />
+                      <AvatarFallback className="text-lg">
+                        {getInitials(formData.name || "U")}
+                      </AvatarFallback>
+                    </Avatar>
+                    {isUploadingAvatar && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full">
+                        <IconLoader2 className="h-6 w-6 animate-spin text-white" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label>Profile Picture</Label>
+                    <div className="flex gap-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAvatarUpload}
+                        className="hidden"
+                        id="avatar-upload"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploadingAvatar}
+                      >
+                        <IconCamera className="mr-2 h-4 w-4" />
+                        {isUploadingAvatar ? "Uploading..." : "Upload Photo"}
+                      </Button>
+                      {formData.avatar_url && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleRemoveAvatar}
+                          disabled={isUploadingAvatar}
+                        >
+                          <IconTrash className="mr-2 h-4 w-4" />
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      JPG, PNG or GIF. Max size 2MB.
+                    </p>
                   </div>
                 </div>
 
