@@ -139,11 +139,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let isMounted = true
     let sessionHandled = false
 
+    // Helper to link user to any pending team invites
+    const linkPendingTeamInvites = async (userId: string, email: string) => {
+      try {
+        // Find any pending invites for this email and link them to the user
+        const { data, error } = await supabase
+          .from('team_members')
+          .update({ user_id: userId, status: 'Active' })
+          .eq('email', email.toLowerCase())
+          .eq('status', 'Pending')
+          .is('user_id', null)
+          .select()
+
+        if (error) {
+          console.error('Error linking team invites:', error)
+        } else if (data && data.length > 0) {
+          console.log('Linked user to team invites:', data)
+        }
+      } catch (err) {
+        console.error('Error in linkPendingTeamInvites:', err)
+      }
+    }
+
     // Helper to set user from session
     const setUserFromSession = async (session: { user: SupabaseUser }) => {
       if (!isMounted) return
 
       try {
+        // Link any pending team invites for this user
+        if (session.user.email) {
+          await linkPendingTeamInvites(session.user.id, session.user.email)
+        }
+
         const profile = await getProfile(session.user)
         if (isMounted) {
           setUser(profile)
