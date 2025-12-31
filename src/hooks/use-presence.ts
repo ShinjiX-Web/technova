@@ -13,7 +13,7 @@ export function usePresence() {
   const { user } = useAuth()
   const lastActivityRef = useRef<number>(Date.now())
   const statusRef = useRef<PresenceStatus>('Online')
-  const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Update last activity timestamp
   const updateActivity = useCallback(() => {
@@ -66,7 +66,7 @@ export function usePresence() {
     const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click']
     
     // Throttled activity handler
-    let throttleTimeout: NodeJS.Timeout | null = null
+    let throttleTimeout: ReturnType<typeof setTimeout> | null = null
     const throttledUpdateActivity = () => {
       if (!throttleTimeout) {
         updateActivity()
