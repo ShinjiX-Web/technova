@@ -96,14 +96,38 @@ export default function TeamPage() {
         throw ownedError
       }
 
-      // Check if user is a member of someone else's team
-      const { data: memberOf, error: memberError } = await supabase
+      // Check if user is a member of someone else's team (by user_id OR by email)
+      let memberOf = null
+
+      // First try by user_id
+      const { data: memberById } = await supabase
         .from("team_members")
         .select("*")
         .eq("user_id", user.id)
         .single()
 
-      if (memberOf && !memberError) {
+      if (memberById) {
+        memberOf = memberById
+      } else if (user.email) {
+        // Try by email if user_id not found
+        const { data: memberByEmail } = await supabase
+          .from("team_members")
+          .select("*")
+          .eq("email", user.email.toLowerCase())
+          .neq("owner_id", user.id) // Make sure it's not their own team
+          .single()
+
+        if (memberByEmail) {
+          memberOf = memberByEmail
+          // Update the user_id so future lookups are faster and link the account
+          await supabase
+            .from("team_members")
+            .update({ user_id: user.id, status: "Active" })
+            .eq("id", memberByEmail.id)
+        }
+      }
+
+      if (memberOf) {
         // User is a member of another team - show that team
         setIsTeamOwner(false)
 
