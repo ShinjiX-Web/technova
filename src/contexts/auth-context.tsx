@@ -110,12 +110,12 @@ async function getProfile(firebaseUser: FirebaseUser): Promise<User> {
 
   try {
     // Try to get profile from profiles table with 5 second timeout
-    // Use .maybeSingle() to avoid 400 errors when profile doesn't exist
+    // Use .limit(1) instead of .single()/.maybeSingle() to avoid 400 errors
     const profilePromise = supabase
       .from('profiles')
       .select('*')
       .eq('id', firebaseUser.uid)
-      .maybeSingle()
+      .limit(1)
 
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
@@ -123,13 +123,11 @@ async function getProfile(firebaseUser: FirebaseUser): Promise<User> {
 
     const { data, error } = await Promise.race([profilePromise, timeoutPromise])
 
-    if (!error && data) {
-      profile = data
-    } else if (error) {
-      // console.log('Profile not found or error:', error.message)
+    if (!error && data && data.length > 0) {
+      profile = data[0]
     }
   } catch (err) {
-    console.error('Error fetching profile:', err)
+    // Profile fetch failed silently - user may not have a profile yet
   }
 
   // Determine provider from Firebase user

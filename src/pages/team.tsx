@@ -33,6 +33,7 @@ import {
 import { IconUsers, IconUserPlus, IconDotsVertical, IconEdit, IconTrash, IconSend, IconClock } from "@tabler/icons-react"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
+import { TeamChat } from "@/components/team-chat"
 import Swal from "sweetalert2"
 
 // Team member type
@@ -662,6 +663,12 @@ export default function TeamPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Team Chat */}
+          <TeamChat
+            teamMembers={teamMembers}
+            ownerId={isTeamOwner ? user?.id || null : teamOwnerInfo?.id || null}
+          />
         </div>
       </SidebarInset>
 
