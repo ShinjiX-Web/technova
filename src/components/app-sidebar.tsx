@@ -13,6 +13,7 @@ import {
   IconFolder,
   IconHelp,
   IconListDetails,
+  IconMessage,
   IconReport,
   IconSearch,
   IconSettings,
@@ -60,6 +61,11 @@ const data = {
       title: "Team",
       url: "/team",
       icon: IconUsers,
+    },
+    {
+      title: "Team Chat",
+      url: "/team-chat",
+      icon: IconMessage,
     },
   ],
   navClouds: [

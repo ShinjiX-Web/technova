@@ -65,10 +65,19 @@ export function TeamChat({ teamMembers, ownerId }: TeamChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Debug log
+  // useEffect(() => {
+  //   console.log("TeamChat - ownerId:", ownerId, "user:", user?.id)
+  // }, [ownerId, user])
+
   // Fetch messages
   const fetchMessages = async () => {
-    if (!ownerId) return
-    
+    if (!ownerId) {
+      console.log("fetchMessages: No ownerId")
+      return
+    }
+
+    // console.log("Fetching messages for owner:", ownerId)
     const { data, error } = await supabase
       .from("team_messages")
       .select("*")
@@ -76,6 +85,7 @@ export function TeamChat({ teamMembers, ownerId }: TeamChatProps) {
       .order("created_at", { ascending: true })
       .limit(100)
 
+    console.log("Messages fetched:", data?.length, "error:", error)
     if (!error && data) {
       setMessages(data)
     }
@@ -93,7 +103,12 @@ export function TeamChat({ teamMembers, ownerId }: TeamChatProps) {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "team_messages", filter: `owner_id=eq.${ownerId}` },
         (payload) => {
-          setMessages((prev) => [...prev, payload.new as ChatMessage])
+          const newMsg = payload.new as ChatMessage
+          // Only add if not already in the list (avoid duplicates from local add)
+          setMessages((prev) => {
+            if (prev.some(m => m.id === newMsg.id)) return prev
+            return [...prev, newMsg]
+          })
         }
       )
       .subscribe()
@@ -112,18 +127,34 @@ export function TeamChat({ teamMembers, ownerId }: TeamChatProps) {
 
   // Send message
   const sendMessage = async () => {
-    if (!newMessage.trim() || !user || !ownerId) return
+    if (!newMessage.trim() || !user || !ownerId) {
+      console.log("Cannot send - missing:", { message: newMessage.trim(), user: !!user, ownerId })
+      return
+    }
 
     setIsLoading(true)
+    const messageText = newMessage.trim()
+
     try {
-      await supabase.from("team_messages").insert({
+      const { data, error } = await supabase.from("team_messages").insert({
         owner_id: ownerId,
         sender_id: user.id,
         sender_name: user.name || user.email?.split("@")[0] || "User",
         sender_email: user.email || "",
         sender_avatar: user.avatar || null,
-        message: newMessage.trim(),
-      })
+        message: messageText,
+      }).select().single()
+
+      if (error) {
+        console.error("Error sending message:", error)
+        return
+      }
+
+      // Add message to state immediately (don't wait for realtime)
+      if (data) {
+        setMessages((prev) => [...prev, data])
+      }
+
       setNewMessage("")
       inputRef.current?.focus()
     } catch (error) {

@@ -28,32 +28,33 @@ export function usePresence() {
   const updatePresenceInDb = useCallback(async (status: PresenceStatus) => {
     if (!user?.id) return
 
+    const now = new Date().toISOString()
+
     try {
+      // Update user's own profile last_seen (for owner visibility to team members)
+      await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          last_seen: now,
+          updated_at: now,
+        }, { onConflict: 'id' })
+
       // Update team_members table for entries where user is a member (user_id matches)
       const { error: memberError } = await supabase
         .from('team_members')
         .update({
           status: status === 'Online' ? 'Active' : status,
-          last_seen: new Date().toISOString()
+          last_seen: now
         })
         .eq('user_id', user.id)
 
-      // Also update team_members entries where user is the owner
-      const { error: ownerError } = await supabase
-        .from('team_members')
-        .update({
-          last_seen: new Date().toISOString()
-        })
-        .eq('owner_id', user.id)
-        .eq('email', user.email || '')
-
       // Log errors but don't throw - user might not have any team_members entries yet
       if (memberError) console.log('Member presence update:', memberError.message)
-      if (ownerError) console.log('Owner presence update:', ownerError.message)
     } catch (error) {
       console.error('Error updating presence:', error)
     }
-  }, [user?.id, user?.email])
+  }, [user?.id])
 
   // Check if user should be marked as Away
   const checkIdleStatus = useCallback(() => {

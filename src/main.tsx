@@ -14,6 +14,7 @@ import LifecyclePage from './pages/lifecycle.tsx'
 import AnalyticsPage from './pages/analytics.tsx'
 import ProjectsPage from './pages/projects.tsx'
 import TeamPage from './pages/team.tsx'
+import TeamChatPage from './pages/team-chat.tsx'
 import { ThemeProvider } from './components/ui/theme-provider.tsx'
 import { AuthProvider, useAuth } from './contexts/auth-context.tsx'
 import { WaveBackground } from './components/ui/wave-background.tsx'
@@ -159,6 +160,14 @@ createRoot(document.getElementById('root')!).render(
                 element={
                   <ProtectedRoute>
                     <TeamPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/team-chat"
+                element={
+                  <ProtectedRoute>
+                    <TeamChatPage />
                   </ProtectedRoute>
                 }
               />

@@ -33,7 +33,6 @@ import {
 import { IconUsers, IconUserPlus, IconDotsVertical, IconEdit, IconTrash, IconSend, IconClock } from "@tabler/icons-react"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
-import { TeamChat } from "@/components/team-chat"
 import Swal from "sweetalert2"
 
 // Team member type
@@ -196,14 +195,13 @@ export default function TeamPage() {
 
         if (teamError) throw teamError
 
-        // Try to get owner's profile - first by firebase_uid, then by id
-        let ownerProfile = null
+        // Try to get owner's profile with last_seen for presence tracking
+        let ownerProfile: { id?: string; name?: string; email?: string; avatar_url?: string; last_seen?: string } | null = null
 
-        // Try by email from any existing team member that might have owner's email
-        // Or try the profiles table by id (for Supabase auth users)
+        // Get owner profile from profiles table (includes last_seen for presence)
         const { data: profileData } = await supabase
           .from("profiles")
-          .select("id, name, email, avatar_url")
+          .select("id, name, email, avatar_url, last_seen")
           .eq("id", memberOf.owner_id)
           .single()
 
@@ -211,10 +209,10 @@ export default function TeamPage() {
           ownerProfile = profileData
         }
 
-        setTeamOwnerInfo(ownerProfile)
+        setTeamOwnerInfo(ownerProfile ? { id: ownerProfile.id || memberOf.owner_id, name: ownerProfile.name || "Team Owner" } : null)
 
         // Create owner entry to show in the team list (for members viewing)
-        // Use owner profile data if available, otherwise we need to get it from somewhere
+        // Use owner profile data if available, otherwise use stored owner info
         const ownerEntry: TeamMember = {
           id: `owner-${memberOf.owner_id}`,
           name: ownerProfile?.name || memberOf.owner_name || "Team Owner",
@@ -226,6 +224,7 @@ export default function TeamPage() {
           owner_id: memberOf.owner_id,
           user_id: memberOf.owner_id,
           created_at: new Date().toISOString(),
+          last_seen: ownerProfile?.last_seen || null, // Use profile's last_seen for presence
         }
 
         const active = teamData?.filter((m) => m.status !== "Pending") || []
@@ -239,6 +238,7 @@ export default function TeamPage() {
         setTeamOwnerInfo(null)
 
         // Create owner entry to show in the team list
+        // Owner is always considered online when viewing their own team
         const ownerEntry: TeamMember = {
           id: `owner-${user.id}`,
           name: user.name,
@@ -250,6 +250,7 @@ export default function TeamPage() {
           owner_id: user.id,
           user_id: user.id,
           created_at: new Date().toISOString(),
+          last_seen: new Date().toISOString(), // Owner is online now
         }
 
         const active = ownedTeam?.filter((m) => m.status !== "Pending") || []
@@ -663,12 +664,6 @@ export default function TeamPage() {
               )}
             </CardContent>
           </Card>
-
-          {/* Team Chat */}
-          <TeamChat
-            teamMembers={teamMembers}
-            ownerId={isTeamOwner ? user?.id || null : teamOwnerInfo?.id || null}
-          />
         </div>
       </SidebarInset>
 
