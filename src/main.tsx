@@ -15,6 +15,8 @@ import AnalyticsPage from './pages/analytics.tsx'
 import ProjectsPage from './pages/projects.tsx'
 import TeamPage from './pages/team.tsx'
 import TeamChatPage from './pages/team-chat.tsx'
+import PrivacyPolicy from './pages/privacy.tsx'
+import TermsOfService from './pages/terms.tsx'
 import { ThemeProvider } from './components/ui/theme-provider.tsx'
 import { AuthProvider, useAuth } from './contexts/auth-context.tsx'
 import { WaveBackground } from './components/ui/wave-background.tsx'
@@ -171,6 +173,8 @@ createRoot(document.getElementById('root')!).render(
                   </ProtectedRoute>
                 }
               />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/terms" element={<TermsOfService />} />
             </Routes>
           </div>
         </BrowserRouter>

@@ -162,10 +162,14 @@ export default function LandingPage() {
         <div className="container mx-auto px-4 lg:px-8">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-3">
-              <img src="/logo.png" alt="Creative Developers" className="w-12 h-12 object-contain" />
-              <span className="font-semibold">Creative Developers</span>
+              <img src={isDark ? "/logo_white.svg" : "/logo_black.svg"} alt="TechNova" className="h-8 w-auto object-contain" />
+              <span className="font-semibold">TechNova</span>
             </div>
-            <p className="text-sm text-muted-foreground">© 2026 Creative Developers. All rights reserved.</p>
+            <div className="flex items-center gap-6">
+              <Link to="/privacy" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Privacy Policy</Link>
+              <Link to="/terms" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Terms of Service</Link>
+            </div>
+            <p className="text-sm text-muted-foreground">© 2026 TechNova. All rights reserved.</p>
           </div>
         </div>
       </footer>
