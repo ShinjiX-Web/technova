@@ -137,6 +137,9 @@ export default function TeamChatPage() {
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [popOutMember, setPopOutMember] = useState<TeamMember | null>(null)
+  const [popOutPosition, setPopOutPosition] = useState({ x: 100, y: 100 })
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [isSoundSettingsOpen, setIsSoundSettingsOpen] = useState(false)
   const [isBackgroundDialogOpen, setIsBackgroundDialogOpen] = useState(false)
   const [customBackgroundImage, setCustomBackgroundImage] = useState<string | null>(null)
@@ -617,6 +620,28 @@ export default function TeamChatPage() {
   // Check if file is an image
   const isImage = (fileType?: string | null) => fileType?.startsWith("image/")
 
+  // Drag handlers for pop-out window
+  const handleDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest("button, input, [role='button']")) return
+    setIsDragging(true)
+    setDragOffset({
+      x: e.clientX - popOutPosition.x,
+      y: e.clientY - popOutPosition.y,
+    })
+  }
+
+  const handleDrag = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDragging) return
+    setPopOutPosition({
+      x: Math.max(0, Math.min(e.clientX - dragOffset.x, window.innerWidth - 450)),
+      y: Math.max(0, Math.min(e.clientY - dragOffset.y, window.innerHeight - 600)),
+    })
+  }
+
+  const handleDragEnd = () => {
+    setIsDragging(false)
+  }
+
   // Open private chat with a member
   const openPrivateChat = (member: TeamMember) => {
     if (member.user_id === user?.id) return // Don't allow chat with self
@@ -796,16 +821,18 @@ export default function TeamChatPage() {
 
             {/* Chat Area - Show Private Chat or Team Chat */}
             {privateChatMember ? (
-              <PrivateChatPanel
-                member={privateChatMember}
-                teamOwnerId={ownerId || ""}
-                onBack={() => setPrivateChatMember(null)}
-                currentThemeClass={currentTheme.class}
-                onPopOut={() => {
-                  setPopOutMember(privateChatMember)
-                  setPrivateChatMember(null)
-                }}
-              />
+              <div className="lg:col-span-3 flex flex-col max-h-full min-h-0">
+                <PrivateChatPanel
+                  member={privateChatMember}
+                  teamOwnerId={ownerId || ""}
+                  onBack={() => setPrivateChatMember(null)}
+                  currentThemeClass={currentTheme.class}
+                  onPopOut={() => {
+                    setPopOutMember(privateChatMember)
+                    setPrivateChatMember(null)
+                  }}
+                />
+              </div>
             ) : (
             <Card className="lg:col-span-3 flex flex-col max-h-full min-h-0">
               <CardHeader className="pb-3 border-b flex-shrink-0">
@@ -1007,10 +1034,30 @@ export default function TeamChatPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Pop-out Private Chat Dialog */}
-      <Dialog open={!!popOutMember} onOpenChange={(open) => !open && setPopOutMember(null)}>
-        <DialogContent className="max-w-lg h-[600px] p-0 overflow-hidden">
-          {popOutMember && (
+      {/* Pop-out Private Chat - Draggable Window */}
+      {popOutMember && (
+        <div
+          className="fixed z-50 w-[450px] h-[600px] bg-background border rounded-lg shadow-2xl overflow-hidden"
+          style={{
+            left: popOutPosition.x,
+            top: popOutPosition.y,
+            cursor: isDragging ? "grabbing" : "default",
+          }}
+          onMouseMove={handleDrag}
+          onMouseUp={handleDragEnd}
+          onMouseLeave={handleDragEnd}
+        >
+          {/* Draggable header */}
+          <div
+            className="flex items-center justify-between px-3 py-2 bg-muted/50 border-b cursor-grab active:cursor-grabbing select-none"
+            onMouseDown={handleDragStart}
+          >
+            <span className="text-sm font-medium">Private Chat - {popOutMember.chat_nickname || popOutMember.name}</span>
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setPopOutMember(null)}>
+              <IconX className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="h-[calc(100%-40px)]">
             <PrivateChatPanel
               member={popOutMember}
               teamOwnerId={ownerId || ""}
@@ -1018,9 +1065,9 @@ export default function TeamChatPage() {
               currentThemeClass={currentTheme.class}
               isPopOut
             />
-          )}
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>
+      )}
 
       {/* Notification Sound Settings Dialog */}
       <NotificationSoundSettings
