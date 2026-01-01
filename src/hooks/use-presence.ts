@@ -29,21 +29,31 @@ export function usePresence() {
     if (!user?.id) return
 
     try {
-      // Update team_members table for the current user
-      await supabase
+      // Update team_members table for entries where user is a member (user_id matches)
+      const { error: memberError } = await supabase
         .from('team_members')
-        .update({ 
+        .update({
           status: status === 'Online' ? 'Active' : status,
           last_seen: new Date().toISOString()
         })
         .eq('user_id', user.id)
 
-      // Also update if user is an owner (update their own membership view)
-      // This is handled via the owner entry created in team.tsx
+      // Also update team_members entries where user is the owner
+      const { error: ownerError } = await supabase
+        .from('team_members')
+        .update({
+          last_seen: new Date().toISOString()
+        })
+        .eq('owner_id', user.id)
+        .eq('email', user.email || '')
+
+      // Log errors but don't throw - user might not have any team_members entries yet
+      if (memberError) console.log('Member presence update:', memberError.message)
+      if (ownerError) console.log('Owner presence update:', ownerError.message)
     } catch (error) {
       console.error('Error updating presence:', error)
     }
-  }, [user?.id])
+  }, [user?.id, user?.email])
 
   // Check if user should be marked as Away
   const checkIdleStatus = useCallback(() => {

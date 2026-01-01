@@ -43,15 +43,26 @@ interface TeamMember {
   role: string
   position: string
   avatar_url: string | null
-  status: "Active" | "Away" | "Offline" | "Pending"
+  status: string
   owner_id: string
   user_id?: string | null
   created_at: string
+  last_seen?: string | null
   // Owner info for display (stored when invite is created)
   owner_name?: string | null
   owner_email?: string | null
   owner_avatar?: string | null
 }
+
+// MS Teams-style status options
+const STATUS_OPTIONS = [
+  { value: "Available", label: "Available", color: "bg-green-500" },
+  { value: "Busy", label: "Busy", color: "bg-red-500" },
+  { value: "Do not disturb", label: "Do not disturb", color: "bg-red-600" },
+  { value: "Be right back", label: "Be right back", color: "bg-amber-500" },
+  { value: "Away", label: "Away", color: "bg-amber-500" },
+  { value: "Appear offline", label: "Appear offline", color: "bg-gray-400" },
+]
 
 // Available roles and positions
 const ROLES = ["Admin", "Manager", "Developer", "Designer", "Analyst", "Member"]
@@ -104,11 +115,15 @@ export default function TeamPage() {
       let memberOf = null
 
       // First try by user_id (user_id is TEXT type)
-      const { data: memberById } = await supabase
+      // Use .limit(1) instead of .single() to avoid 406 errors when no rows found
+      const { data: membersById } = await supabase
         .from("team_members")
         .select("*")
         .eq("user_id", user.id)
-        .single()
+        .neq("owner_id", user.id) // Exclude entries where user is the owner
+        .limit(1)
+
+      const memberById = membersById?.[0] || null
 
       if (memberById) {
         memberOf = memberById
@@ -255,17 +270,52 @@ export default function TeamPage() {
 
   const getInitials = (name: string) => name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
 
+  // Check if user is offline based on last_seen timestamp
+  // If last_seen is more than 2 minutes old, consider them offline
+  const OFFLINE_THRESHOLD_MS = 2 * 60 * 1000 // 2 minutes
+
+  const getEffectiveStatus = (member: TeamMember): string => {
+    // Pending invites stay as Pending
+    if (member.status === "Pending") return "Pending"
+
+    // Check last_seen timestamp
+    if (member.last_seen) {
+      const lastSeenTime = new Date(member.last_seen).getTime()
+      const timeSinceLastSeen = Date.now() - lastSeenTime
+
+      // If last seen more than 2 minutes ago, they're offline
+      if (timeSinceLastSeen > OFFLINE_THRESHOLD_MS) {
+        return "Offline"
+      }
+    } else {
+      // No last_seen means never connected, show as offline
+      return "Offline"
+    }
+
+    // Return the stored status
+    return member.status
+  }
+
   // MS Teams-style status colors
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Active":
       case "Online":
+      case "Available":
         return "bg-green-500" // Online - green
       case "Away":
+      case "Be right back":
         return "bg-amber-500" // Away - orange/amber
+      case "Busy":
+      case "In a call":
+      case "In a meeting":
+        return "bg-red-500" // Busy - red
+      case "Do not disturb":
+        return "bg-red-600" // DND - darker red
       case "Pending":
         return "bg-blue-500" // Pending invite - blue
       case "Offline":
+      case "Appear offline":
       default:
         return "bg-gray-400" // Offline - gray
     }
@@ -276,10 +326,19 @@ export default function TeamPage() {
     switch (status) {
       case "Active":
       case "Online":
+      case "Available":
         return null // Just the green dot
       case "Away":
+      case "Be right back":
         return "⏱" // Clock symbol for away
+      case "Busy":
+      case "In a call":
+      case "In a meeting":
+        return "−" // Minus for busy
+      case "Do not disturb":
+        return "−" // Minus for DND
       case "Offline":
+      case "Appear offline":
         return "✕" // X for offline
       default:
         return null
@@ -422,9 +481,45 @@ export default function TeamPage() {
     setIsEditOpen(true)
   }
 
+  // Handle status change for current user
+  const handleStatusChange = async (newStatus: string) => {
+    if (!user) return
+
+    try {
+      // Map "Available" to "Active" for database consistency
+      const dbStatus = newStatus === "Available" ? "Active" : newStatus
+
+      // Update status in team_members for entries where user is a member
+      await supabase
+        .from("team_members")
+        .update({
+          status: dbStatus,
+          last_seen: new Date().toISOString()
+        })
+        .eq("user_id", user.id)
+
+      // Refresh the team members list
+      fetchTeamMembers()
+
+      Swal.fire({
+        icon: "success",
+        title: "Status Updated",
+        text: `Your status is now: ${newStatus}`,
+        timer: 1500,
+        showConfirmButton: false,
+        ...getSwalTheme()
+      })
+    } catch (error) {
+      console.error("Error updating status:", error)
+      Swal.fire({ icon: "error", title: "Error", text: "Failed to update status", ...getSwalTheme() })
+    }
+  }
+
   // Render member card
   const renderMemberCard = (member: TeamMember, isPending = false) => {
-    const statusIcon = getStatusIndicator(member.status)
+    const effectiveStatus = getEffectiveStatus(member)
+    const statusIcon = getStatusIndicator(effectiveStatus)
+    const isCurrentUser = member.user_id === user?.id
 
     return (
     <div key={member.id} className="flex items-center gap-4 p-4 border rounded-lg hover:bg-muted/50 transition-colors">
@@ -434,7 +529,7 @@ export default function TeamPage() {
           <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
         </Avatar>
         {/* MS Teams-style status indicator */}
-        <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-background ${getStatusColor(member.status)} flex items-center justify-center`}>
+        <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-background ${getStatusColor(effectiveStatus)} flex items-center justify-center`}>
           {statusIcon && <span className="text-[6px] text-white font-bold">{statusIcon}</span>}
         </div>
       </div>
@@ -442,12 +537,36 @@ export default function TeamPage() {
         <div className="flex items-center gap-2">
           <p className="font-medium">{member.name}</p>
           {isPending && <Badge variant="outline" className="text-xs">Pending</Badge>}
-          {member.user_id === user?.id && <Badge variant="outline" className="text-xs bg-primary/10">You</Badge>}
+          {isCurrentUser && <Badge variant="outline" className="text-xs bg-primary/10">You</Badge>}
         </div>
         <p className="text-sm text-muted-foreground">{member.email}</p>
         {member.position && <p className="text-xs text-muted-foreground">{member.position}</p>}
       </div>
-      <Badge variant={member.role === "Admin" ? "destructive" : member.role === "Manager" ? "default" : "secondary"}>{member.role}</Badge>
+      {/* Status selector for current user */}
+      {isCurrentUser && !isPending ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-2">
+              <div className={`w-2 h-2 rounded-full ${getStatusColor(effectiveStatus)}`} />
+              {effectiveStatus === "Active" ? "Available" : effectiveStatus}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {STATUS_OPTIONS.map((option) => (
+              <DropdownMenuItem
+                key={option.value}
+                onClick={() => handleStatusChange(option.value)}
+                className="gap-2"
+              >
+                <div className={`w-2 h-2 rounded-full ${option.color}`} />
+                {option.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <Badge variant={member.role === "Admin" ? "destructive" : member.role === "Manager" ? "default" : "secondary"}>{member.role}</Badge>
+      )}
       {/* Don't show edit/delete for the owner's own entry */}
       {isTeamOwner && member.id !== `owner-${user?.id}` && (
         <DropdownMenu>
