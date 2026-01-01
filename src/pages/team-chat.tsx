@@ -403,15 +403,24 @@ export default function TeamChatPage() {
   const saveNickname = async () => {
     if (!user) return
 
+    const newNickname = nicknameInput.trim() || null
+
     const { error } = await supabase.from("chat_settings").upsert({
       user_id: user.id,
-      nickname: nicknameInput.trim() || null,
+      nickname: newNickname,
       chat_theme: selectedTheme,
+      status: selectedStatus,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id" })
 
-    if (!error) {
-      setChatSettings(prev => ({ ...prev!, nickname: nicknameInput.trim() || null }))
+    if (error) {
+      console.error("Error saving nickname:", error)
+      Swal.fire({ icon: "error", title: "Failed to save nickname", text: error.message, ...getSwalTheme() })
+    } else {
+      setChatSettings(prev => prev
+        ? { ...prev, nickname: newNickname }
+        : { user_id: user.id, nickname: newNickname, chat_theme: selectedTheme, status: selectedStatus }
+      )
       setIsNicknameOpen(false)
       Swal.fire({ icon: "success", title: "Nickname saved", timer: 1500, showConfirmButton: false, ...getSwalTheme() })
     }
@@ -563,7 +572,7 @@ export default function TeamChatPage() {
             <Card className="lg:col-span-1 flex flex-col max-h-full">
               <CardHeader className="pb-3 flex-shrink-0">
                 <CardTitle className="text-sm font-medium">Team Members</CardTitle>
-                <CardDescription>{teamMembers.length + 1} members</CardDescription>
+                <CardDescription>{teamMembers.filter(m => m.user_id !== user?.id).length + 1} members</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2 overflow-y-auto flex-1">
                 {/* Show current user first */}
@@ -584,7 +593,8 @@ export default function TeamChatPage() {
                     </div>
                   </div>
                 )}
-                {teamMembers.map((member) => (
+                {/* Filter out current user from team members to avoid duplicate */}
+                {teamMembers.filter(member => member.user_id !== user?.id).map((member) => (
                   <div key={member.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-muted/50 group">
                     <div className="relative">
                       <Avatar className="h-8 w-8">
