@@ -90,7 +90,11 @@ interface ChatSettings {
   user_id: string
   chat_theme: string
   nickname: string | null
+  status: string | null
 }
+
+// Notification sound - using a base64 encoded short beep sound
+const NOTIFICATION_SOUND = "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleBoRHoTG7umUUDs8oNnlv3kdAB5+xt/fkz0yPKbV5b5zFQAmdMvf4pRAPDmj0+S8cBIAL3zL3N+QPTI7pNTkvHASAC98y9zfkD0yO6TU5LxwEgAvfMvc35A9MjwR"
 
 export default function TeamChatPage() {
   const { user } = useAuth()
@@ -109,10 +113,27 @@ export default function TeamChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   // Dark mode for Swal
   const isDark = document.documentElement.classList.contains("dark")
   const getSwalTheme = () => ({ background: isDark ? "#171717" : "#ffffff", color: isDark ? "#ffffff" : "#171717" })
+
+  // Initialize audio for notifications
+  useEffect(() => {
+    audioRef.current = new Audio(NOTIFICATION_SOUND)
+    audioRef.current.volume = 0.5
+  }, [])
+
+  // Play notification sound
+  const playNotificationSound = () => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0
+      audioRef.current.play().catch(() => {
+        // Ignore errors (e.g., if user hasn't interacted with page yet)
+      })
+    }
+  }
 
   // Determine the owner_id (team owner's ID for chat room)
   useEffect(() => {
@@ -158,13 +179,14 @@ export default function TeamChatPage() {
         setChatSettings(data)
         setSelectedTheme(data.chat_theme || "default")
         setNicknameInput(data.nickname || "")
+        setSelectedStatus(data.status || "Available")
       }
     }
 
     fetchSettings()
   }, [user])
 
-  // Fetch team members
+  // Fetch team members - remove status filter to show all members
   useEffect(() => {
     const fetchTeamMembers = async () => {
       if (!ownerId) return
@@ -173,7 +195,7 @@ export default function TeamChatPage() {
         .from("team_members")
         .select("id, name, email, avatar_url, status, last_seen, user_id, is_chat_blocked, chat_nickname")
         .eq("owner_id", ownerId)
-        .eq("status", "Active")
+        // Removed .eq("status", "Active") to show all members regardless of status
 
       if (data) {
         setTeamMembers(data)
@@ -201,12 +223,12 @@ export default function TeamChatPage() {
 
   // Subscribe to realtime messages
   useEffect(() => {
-    if (!ownerId) return
+    if (!ownerId || !user) return
 
     fetchMessages()
 
     const channel = supabase
-      .channel(`team-chat-page-${ownerId}`)
+      .channel(`team-chat-page-${ownerId}-${Date.now()}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "team_messages", filter: `owner_id=eq.${ownerId}` },
@@ -216,14 +238,20 @@ export default function TeamChatPage() {
             if (prev.some(m => m.id === newMsg.id)) return prev
             return [...prev, newMsg]
           })
+          // Play notification sound for messages from others
+          if (newMsg.sender_id !== user.id) {
+            playNotificationSound()
+          }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log("Realtime subscription status:", status)
+      })
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [ownerId])
+  }, [ownerId, user])
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -394,12 +422,17 @@ export default function TeamChatPage() {
     if (!user) return
 
     setSelectedTheme(themeId)
-    await supabase.from("chat_settings").upsert({
+    const { error } = await supabase.from("chat_settings").upsert({
       user_id: user.id,
       chat_theme: themeId,
       nickname: chatSettings?.nickname || null,
+      status: selectedStatus,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id" })
+
+    if (!error) {
+      setChatSettings(prev => prev ? { ...prev, chat_theme: themeId } : { user_id: user.id, chat_theme: themeId, nickname: null, status: selectedStatus })
+    }
   }
 
   // Update availability status
@@ -407,6 +440,19 @@ export default function TeamChatPage() {
     if (!user) return
 
     setSelectedStatus(status)
+
+    // Save status to chat_settings for persistence
+    const { error } = await supabase.from("chat_settings").upsert({
+      user_id: user.id,
+      chat_theme: selectedTheme,
+      nickname: chatSettings?.nickname || null,
+      status: status,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id" })
+
+    if (!error) {
+      setChatSettings(prev => prev ? { ...prev, status } : { user_id: user.id, chat_theme: selectedTheme, nickname: null, status })
+    }
 
     // Update in team_members if user is a member
     await supabase

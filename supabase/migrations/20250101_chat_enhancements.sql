@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS chat_settings (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   chat_theme TEXT DEFAULT 'default',
   nickname TEXT,
+  status TEXT DEFAULT 'Available',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id)
