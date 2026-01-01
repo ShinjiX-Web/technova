@@ -100,16 +100,7 @@ export function usePresence() {
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
-    // Handle page unload
-    const handleBeforeUnload = () => {
-      // Use sendBeacon for reliable offline status update
-      const data = JSON.stringify({
-        user_id: user.id,
-        status: 'Offline'
-      })
-      navigator.sendBeacon('/api/presence/offline', data)
-    }
-    window.addEventListener('beforeunload', handleBeforeUnload)
+
 
     // Cleanup
     return () => {
@@ -117,7 +108,6 @@ export function usePresence() {
         window.removeEventListener(event, throttledUpdateActivity)
       })
       document.removeEventListener('visibilitychange', handleVisibilityChange)
-      window.removeEventListener('beforeunload', handleBeforeUnload)
       
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
