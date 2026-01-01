@@ -144,21 +144,31 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
     const memberId = getMemberId()
 
     setIsLoading(true)
+    const messageText = newMessage.trim()
     try {
-      await supabase.from("private_messages").insert({
+      const { data, error } = await supabase.from("private_messages").insert({
         team_owner_id: teamOwnerId,
         sender_id: user.id,
         receiver_id: memberId,
         sender_name: user.name || user.email?.split("@")[0] || "User",
         sender_avatar: user.avatar || null,
-        message: fileUrl ? `Shared a file: ${fileName}` : newMessage.trim(),
+        message: fileUrl ? `Shared a file: ${fileName}` : messageText,
         file_url: fileUrl || null,
         file_name: fileName || null,
         file_type: fileType || null,
         reply_to_id: replyTo?.id || null,
         reply_to_message: replyTo?.message?.substring(0, 100) || null,
         reply_to_sender: replyTo?.sender_name || null,
-      })
+      }).select().single()
+
+      if (!error && data) {
+        // Add message to state immediately (don't wait for realtime)
+        setMessages((prev) => {
+          if (prev.some(m => m.id === data.id)) return prev
+          return [...prev, data]
+        })
+      }
+
       setNewMessage("")
       setReplyTo(null)
     } catch (error) {

@@ -37,6 +37,8 @@ import {
   IconFile,
   IconDownload,
   IconMoodSmile,
+  IconCornerDownLeft,
+  IconX,
 } from "@tabler/icons-react"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
@@ -88,6 +90,9 @@ interface ChatMessage {
   file_url?: string | null
   file_name?: string | null
   file_type?: string | null
+  reply_to_id?: string | null
+  reply_to_message?: string | null
+  reply_to_sender?: string | null
 }
 
 interface ChatSettings {
@@ -116,6 +121,7 @@ export default function TeamChatPage() {
   const [isBlocked, setIsBlocked] = useState(false)
   const [privateChatMember, setPrivateChatMember] = useState<TeamMember | null>(null)
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -363,6 +369,9 @@ export default function TeamChatPage() {
         file_url: fileUrl || null,
         file_name: fileName || null,
         file_type: fileType || null,
+        reply_to_id: replyTo?.id || null,
+        reply_to_message: replyTo?.message?.substring(0, 100) || null,
+        reply_to_sender: replyTo?.sender_name || null,
       }).select().single()
 
       if (!error && data) {
@@ -370,6 +379,7 @@ export default function TeamChatPage() {
       }
 
       setNewMessage("")
+      setReplyTo(null)
       inputRef.current?.focus()
     } catch (error) {
       console.error("Error sending message:", error)
@@ -792,6 +802,13 @@ export default function TeamChatPage() {
                             </div>
                             <div className="relative">
                               <div className={`rounded-lg px-3 py-2 ${isOwn ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                                {/* Reply quote if this is a reply */}
+                                {msg.reply_to_message && (
+                                  <div className={`mb-2 p-2 rounded text-xs border-l-2 ${isOwn ? "bg-primary-foreground/10 border-primary-foreground/50" : "bg-background/50 border-muted-foreground/50"}`}>
+                                    <span className="font-medium">{msg.reply_to_sender}</span>
+                                    <p className="opacity-70 truncate">{msg.reply_to_message}</p>
+                                  </div>
+                                )}
                                 {msg.file_url && (
                                   <div className="mb-2">
                                     {isImage(msg.file_type) ? (
@@ -819,8 +836,16 @@ export default function TeamChatPage() {
                                   <p className="text-sm whitespace-pre-wrap break-words">{msg.message}</p>
                                 )}
                               </div>
-                              {/* Reaction button - shows on hover */}
-                              <div className={`absolute top-0 opacity-0 group-hover:opacity-100 transition-opacity ${isOwn ? "left-0 -translate-x-full pr-1" : "right-0 translate-x-full pl-1"}`}>
+                              {/* Action buttons - shows on hover */}
+                              <div className={`absolute top-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 ${isOwn ? "left-0 -translate-x-full pr-1" : "right-0 translate-x-full pl-1"}`}>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 rounded-full bg-background/80 hover:bg-background shadow-sm"
+                                  onClick={() => setReplyTo(msg)}
+                                >
+                                  <IconCornerDownLeft className="h-3 w-3" />
+                                </Button>
                                 <ReactionPicker
                                   onReact={(type, value) => addReactionToMessage(msg.id, type, value)}
                                   trigger={
@@ -849,8 +874,23 @@ export default function TeamChatPage() {
 
                 {/* Input Area */}
                 {!isBlocked && (
-                  <div className="border-t p-4 flex-shrink-0">
-                    <div className="flex gap-2">
+                  <div className="border-t flex-shrink-0">
+                    {/* Reply preview */}
+                    {replyTo && (
+                      <div className="px-4 pt-3 pb-0">
+                        <div className="flex items-center gap-2 p-2 rounded-t bg-muted/50 border-l-2 border-primary">
+                          <IconCornerDownLeft className="h-4 w-4 text-muted-foreground" />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-xs font-medium">{replyTo.sender_name}</span>
+                            <p className="text-xs text-muted-foreground truncate">{replyTo.message}</p>
+                          </div>
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReplyTo(null)}>
+                            <IconX className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    <div className="p-4 flex gap-2">
                       <input
                         ref={fileInputRef}
                         type="file"
@@ -871,7 +911,7 @@ export default function TeamChatPage() {
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Type a message..."
+                        placeholder={replyTo ? "Type your reply..." : "Type a message..."}
                         disabled={isLoading || !ownerId}
                         className="flex-1"
                       />
