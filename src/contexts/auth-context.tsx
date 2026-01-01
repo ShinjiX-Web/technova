@@ -126,7 +126,7 @@ async function getProfile(firebaseUser: FirebaseUser): Promise<User> {
     if (!error && data) {
       profile = data
     } else if (error) {
-      console.log('Profile not found or error:', error.message)
+      // console.log('Profile not found or error:', error.message)
     }
   } catch (err) {
     console.error('Error fetching profile:', err)
@@ -212,7 +212,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Subscribe to Firebase auth state changes
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.log('Firebase auth state changed:', firebaseUser?.email)
+      // console.log('Firebase auth state changed:', firebaseUser?.email)
 
       if (firebaseUser) {
         await setUserFromFirebase(firebaseUser)

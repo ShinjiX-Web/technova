@@ -95,7 +95,7 @@ export default function TeamPage() {
   // Fetch team members
   const fetchTeamMembers = async () => {
     if (!user) return
-    console.log("Fetching team members for user:", user.id, user.email)
+    // console.log("Fetching team members for user:", user.id, user.email)
     try {
       // First check if user owns a team (has invited others)
       const { data: ownedTeam, error: ownedError } = await supabase
@@ -104,7 +104,7 @@ export default function TeamPage() {
         .eq("owner_id", user.id)
         .order("created_at", { ascending: false })
 
-      console.log("Owned team query result:", { ownedTeam, ownedError })
+      // console.log("Owned team query result:", { ownedTeam, ownedError })
 
       if (ownedError) {
         console.error("Owned team query error details:", JSON.stringify(ownedError, null, 2))
