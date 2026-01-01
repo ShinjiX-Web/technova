@@ -41,6 +41,9 @@ import {
   IconX,
   IconVolume,
   IconPhoto,
+  IconMinus,
+  IconMaximize,
+  IconMinimize,
 } from "@tabler/icons-react"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
@@ -139,7 +142,10 @@ export default function TeamChatPage() {
   const [popOutMember, setPopOutMember] = useState<TeamMember | null>(null)
   const [popOutPosition, setPopOutPosition] = useState({ x: 100, y: 100 })
   const [isDragging, setIsDragging] = useState(false)
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [popOutSize, setPopOutSize] = useState({ width: 450, height: 600 })
+  const [isPopOutMinimized, setIsPopOutMinimized] = useState(false)
+  const [isPopOutFullscreen, setIsPopOutFullscreen] = useState(false)
+  const [isResizing, setIsResizing] = useState(false)
   const [isSoundSettingsOpen, setIsSoundSettingsOpen] = useState(false)
   const [isBackgroundDialogOpen, setIsBackgroundDialogOpen] = useState(false)
   const [customBackgroundImage, setCustomBackgroundImage] = useState<string | null>(null)
@@ -620,26 +626,87 @@ export default function TeamChatPage() {
   // Check if file is an image
   const isImage = (fileType?: string | null) => fileType?.startsWith("image/")
 
-  // Drag handlers for pop-out window
+  // Drag handlers for pop-out window - using refs for document-level events
+  const dragOffsetRef = useRef({ x: 0, y: 0 })
+  const resizeStartRef = useRef({ x: 0, y: 0, width: 0, height: 0 })
+
   const handleDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest("button, input, [role='button']")) return
+    if (isPopOutFullscreen) return
+    e.preventDefault()
     setIsDragging(true)
-    setDragOffset({
+    dragOffsetRef.current = {
       x: e.clientX - popOutPosition.x,
       y: e.clientY - popOutPosition.y,
-    })
+    }
   }
 
-  const handleDrag = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDragging) return
-    setPopOutPosition({
-      x: Math.max(0, Math.min(e.clientX - dragOffset.x, window.innerWidth - 450)),
-      y: Math.max(0, Math.min(e.clientY - dragOffset.y, window.innerHeight - 600)),
-    })
+  const handleResizeStart = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsResizing(true)
+    resizeStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      width: popOutSize.width,
+      height: popOutSize.height,
+    }
   }
 
-  const handleDragEnd = () => {
-    setIsDragging(false)
+  // Document-level mouse move and mouse up handlers
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isResizing) {
+        const newWidth = Math.max(350, Math.min(resizeStartRef.current.width + (e.clientX - resizeStartRef.current.x), window.innerWidth - popOutPosition.x))
+        const newHeight = Math.max(400, Math.min(resizeStartRef.current.height + (e.clientY - resizeStartRef.current.y), window.innerHeight - popOutPosition.y))
+        setPopOutSize({ width: newWidth, height: newHeight })
+        return
+      }
+      if (isDragging) {
+        setPopOutPosition({
+          x: Math.max(0, Math.min(e.clientX - dragOffsetRef.current.x, window.innerWidth - popOutSize.width)),
+          y: Math.max(0, Math.min(e.clientY - dragOffsetRef.current.y, window.innerHeight - popOutSize.height)),
+        })
+      }
+    }
+
+    const handleMouseUp = () => {
+      setIsDragging(false)
+      setIsResizing(false)
+    }
+
+    if (isDragging || isResizing) {
+      document.addEventListener("mousemove", handleMouseMove)
+      document.addEventListener("mouseup", handleMouseUp)
+      // Prevent text selection while dragging
+      document.body.style.userSelect = "none"
+    }
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove)
+      document.removeEventListener("mouseup", handleMouseUp)
+      document.body.style.userSelect = ""
+    }
+  }, [isDragging, isResizing, popOutPosition.x, popOutPosition.y, popOutSize.width, popOutSize.height])
+
+  // Toggle fullscreen mode
+  const togglePopOutFullscreen = () => {
+    if (isPopOutFullscreen) {
+      setIsPopOutFullscreen(false)
+    } else {
+      setIsPopOutFullscreen(true)
+      setIsPopOutMinimized(false)
+    }
+  }
+
+  // Toggle minimize mode
+  const togglePopOutMinimize = () => {
+    if (isPopOutMinimized) {
+      setIsPopOutMinimized(false)
+    } else {
+      setIsPopOutMinimized(true)
+      setIsPopOutFullscreen(false)
+    }
   }
 
   // Open private chat with a member
@@ -1034,38 +1101,91 @@ export default function TeamChatPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Pop-out Private Chat - Draggable Window */}
+      {/* Pop-out Private Chat - Draggable & Resizable Window */}
       {popOutMember && (
         <div
-          className="fixed z-50 w-[450px] h-[600px] bg-background border rounded-lg shadow-2xl overflow-hidden"
-          style={{
-            left: popOutPosition.x,
-            top: popOutPosition.y,
-            cursor: isDragging ? "grabbing" : "default",
-          }}
-          onMouseMove={handleDrag}
-          onMouseUp={handleDragEnd}
-          onMouseLeave={handleDragEnd}
+          className={`fixed z-50 bg-background border shadow-2xl overflow-hidden flex flex-col ${
+            isPopOutFullscreen ? "inset-0 rounded-none" : "rounded-lg"
+          }`}
+          style={
+            isPopOutFullscreen
+              ? {}
+              : {
+                  left: popOutPosition.x,
+                  top: popOutPosition.y,
+                  width: isPopOutMinimized ? 300 : popOutSize.width,
+                  height: isPopOutMinimized ? 48 : popOutSize.height,
+                }
+          }
         >
-          {/* Draggable header */}
+          {/* Draggable header with window controls */}
           <div
-            className="flex items-center justify-between px-3 py-2 bg-muted/50 border-b cursor-grab active:cursor-grabbing select-none"
+            className={`flex items-center justify-between px-3 py-2 bg-muted/50 border-b select-none shrink-0 ${
+              isPopOutFullscreen ? "cursor-default" : "cursor-grab active:cursor-grabbing"
+            }`}
             onMouseDown={handleDragStart}
           >
-            <span className="text-sm font-medium">Private Chat - {popOutMember.chat_nickname || popOutMember.name}</span>
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setPopOutMember(null)}>
-              <IconX className="h-4 w-4" />
-            </Button>
+            <span className="text-sm font-medium truncate flex-1 mr-2">
+              Private Chat - {popOutMember.chat_nickname || popOutMember.name}
+            </span>
+            <div className="flex items-center gap-1">
+              {/* Minimize button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={togglePopOutMinimize}
+                title={isPopOutMinimized ? "Restore" : "Minimize"}
+              >
+                <IconMinus className="h-3 w-3" />
+              </Button>
+              {/* Fullscreen toggle button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={togglePopOutFullscreen}
+                title={isPopOutFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              >
+                {isPopOutFullscreen ? (
+                  <IconMinimize className="h-3 w-3" />
+                ) : (
+                  <IconMaximize className="h-3 w-3" />
+                )}
+              </Button>
+              {/* Close button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 hover:bg-red-500/20 hover:text-red-500"
+                onClick={() => setPopOutMember(null)}
+                title="Close"
+              >
+                <IconX className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
-          <div className="h-[calc(100%-40px)]">
-            <PrivateChatPanel
-              member={popOutMember}
-              teamOwnerId={ownerId || ""}
-              onBack={() => setPopOutMember(null)}
-              currentThemeClass={currentTheme.class}
-              isPopOut
-            />
-          </div>
+          {/* Chat content - hidden when minimized */}
+          {!isPopOutMinimized && (
+            <div className="flex-1 min-h-0">
+              <PrivateChatPanel
+                member={popOutMember}
+                teamOwnerId={ownerId || ""}
+                onBack={() => setPopOutMember(null)}
+                currentThemeClass={currentTheme.class}
+                isPopOut
+              />
+            </div>
+          )}
+          {/* Resize handle - only show when not minimized or fullscreen */}
+          {!isPopOutMinimized && !isPopOutFullscreen && (
+            <div
+              className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize group"
+              onMouseDown={handleResizeStart}
+            >
+              <div className="absolute bottom-1 right-1 w-2 h-2 border-r-2 border-b-2 border-muted-foreground/50 group-hover:border-primary" />
+            </div>
+          )}
         </div>
       )}
 
