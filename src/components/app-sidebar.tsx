@@ -23,6 +23,7 @@ import { NavDocuments } from "@/components/nav-documents"
 import { NavMain } from "@/components/nav-main"
 import { NavSecondary } from "@/components/nav-secondary"
 import { NavUser } from "@/components/nav-user"
+import { TeamChat } from "@/components/team-chat"
 import {
   Sidebar,
   SidebarContent,
@@ -31,8 +32,12 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarGroupContent,
 } from "@/components/ui/sidebar"
 import { useAuth } from "@/contexts/auth-context"
+import { supabase } from "@/lib/supabase"
 
 const data = {
   navMain: [
@@ -212,6 +217,63 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         avatar: "/avatars/shadcn.jpg",
       }
 
+  // Team chat state
+  const [isChatOpen, setIsChatOpen] = useState(false)
+  const [teamMembers, setTeamMembers] = useState<Array<{
+    id: string
+    name: string
+    email: string
+    avatar_url: string | null
+    status: string
+    user_id?: string | null
+    last_seen?: string | null
+  }>>([])
+  const [teamOwnerId, setTeamOwnerId] = useState<string | null>(null)
+
+  // Fetch team members for chat
+  useEffect(() => {
+    if (!user) return
+
+    const fetchTeam = async () => {
+      // Check if user is part of a team (as owner or member)
+      const { data: ownedTeam } = await supabase
+        .from("team_members")
+        .select("*")
+        .eq("owner_id", user.id)
+        .limit(10)
+
+      if (ownedTeam && ownedTeam.length > 0) {
+        setTeamOwnerId(user.id)
+        setTeamMembers(ownedTeam.filter(m => m.status !== "Pending"))
+        return
+      }
+
+      // Check if member of another team
+      const { data: memberOf } = await supabase
+        .from("team_members")
+        .select("*")
+        .eq("user_id", user.id)
+        .limit(1)
+
+      if (memberOf && memberOf.length > 0) {
+        const ownerId = memberOf[0].owner_id
+        setTeamOwnerId(ownerId)
+
+        const { data: teamData } = await supabase
+          .from("team_members")
+          .select("*")
+          .eq("owner_id", ownerId)
+          .limit(10)
+
+        if (teamData) {
+          setTeamMembers(teamData.filter(m => m.status !== "Pending"))
+        }
+      }
+    }
+
+    fetchTeam()
+  }, [user])
+
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -231,6 +293,22 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarContent>
         <NavMain items={data.navMain} />
         <NavDocuments items={data.documents} />
+
+        {/* Team Chat Section */}
+        {teamMembers.length > 0 && (
+          <SidebarGroup className="mt-4">
+            <SidebarGroupLabel>Team</SidebarGroupLabel>
+            <SidebarGroupContent className="px-2">
+              <TeamChat
+                teamMembers={teamMembers}
+                ownerId={teamOwnerId}
+                isOpen={isChatOpen}
+                onToggle={() => setIsChatOpen(!isChatOpen)}
+              />
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>

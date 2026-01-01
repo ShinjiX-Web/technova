@@ -1,0 +1,224 @@
+import { useState, useEffect, useRef } from "react"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { IconSend, IconMessageCircle } from "@tabler/icons-react"
+import { useAuth } from "@/contexts/auth-context"
+import { supabase } from "@/lib/supabase"
+
+interface TeamMember {
+  id: string
+  name: string
+  email: string
+  avatar_url: string | null
+  status: string
+  user_id?: string | null
+  last_seen?: string | null
+}
+
+interface ChatMessage {
+  id: string
+  owner_id: string
+  sender_id: string
+  sender_name: string
+  sender_email: string
+  sender_avatar: string | null
+  message: string
+  created_at: string
+}
+
+interface TeamChatProps {
+  teamMembers: TeamMember[]
+  ownerId: string | null
+  isOpen: boolean
+  onToggle: () => void
+}
+
+// Status color helper
+const getStatusColor = (status: string, lastSeen?: string | null) => {
+  const manualStatuses = ["Away", "Busy", "Do not disturb", "Be right back", "Appear offline"]
+  if (manualStatuses.includes(status)) {
+    switch (status) {
+      case "Away":
+      case "Be right back":
+        return "bg-amber-500"
+      case "Busy":
+      case "Do not disturb":
+        return "bg-red-500"
+      case "Appear offline":
+        return "bg-gray-400"
+    }
+  }
+  
+  // Check if online based on last_seen
+  if (lastSeen) {
+    const timeSince = Date.now() - new Date(lastSeen).getTime()
+    if (timeSince < 2 * 60 * 1000) return "bg-green-500"
+  }
+  return "bg-gray-400"
+}
+
+export function TeamChat({ teamMembers, ownerId, isOpen, onToggle }: TeamChatProps) {
+  const { user } = useAuth()
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [newMessage, setNewMessage] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Fetch messages
+  const fetchMessages = async () => {
+    if (!ownerId) return
+    
+    const { data, error } = await supabase
+      .from("team_messages")
+      .select("*")
+      .eq("owner_id", ownerId)
+      .order("created_at", { ascending: true })
+      .limit(100)
+
+    if (!error && data) {
+      setMessages(data)
+    }
+  }
+
+  // Subscribe to realtime messages
+  useEffect(() => {
+    if (!ownerId || !isOpen) return
+
+    fetchMessages()
+
+    const channel = supabase
+      .channel(`team-chat-${ownerId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "team_messages", filter: `owner_id=eq.${ownerId}` },
+        (payload) => {
+          setMessages((prev) => [...prev, payload.new as ChatMessage])
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [ownerId, isOpen])
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [messages])
+
+  // Send message
+  const sendMessage = async () => {
+    if (!newMessage.trim() || !user || !ownerId) return
+
+    setIsLoading(true)
+    try {
+      await supabase.from("team_messages").insert({
+        owner_id: ownerId,
+        sender_id: user.id,
+        sender_name: user.name || user.email?.split("@")[0] || "User",
+        sender_email: user.email || "",
+        sender_avatar: user.avatar || null,
+        message: newMessage.trim(),
+      })
+      setNewMessage("")
+      inputRef.current?.focus()
+    } catch (error) {
+      console.error("Error sending message:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const getInitials = (name: string) => name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+
+  const formatTime = (date: string) => {
+    return new Date(date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  }
+
+  if (!isOpen) {
+    return (
+      <Button variant="ghost" size="sm" className="w-full justify-start gap-2" onClick={onToggle}>
+        <IconMessageCircle className="h-4 w-4" />
+        Team Chat
+      </Button>
+    )
+  }
+
+  return (
+    <div className="flex flex-col h-80 border rounded-lg bg-background">
+      {/* Header */}
+      <div className="flex items-center justify-between p-2 border-b">
+        <span className="text-sm font-medium">Team Chat</span>
+        <Button variant="ghost" size="sm" onClick={onToggle}>×</Button>
+      </div>
+
+      {/* Online Members Bar */}
+      <div className="flex gap-1 p-2 border-b overflow-x-auto">
+        {teamMembers.slice(0, 6).map((member) => (
+          <div key={member.id} className="relative" title={`${member.name} - ${member.status}`}>
+            <Avatar className="h-6 w-6">
+              <AvatarImage src={member.avatar_url || ""} />
+              <AvatarFallback className="text-[10px]">{getInitials(member.name)}</AvatarFallback>
+            </Avatar>
+            <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background ${getStatusColor(member.status, member.last_seen)}`} />
+          </div>
+        ))}
+        {teamMembers.length > 6 && (
+          <span className="text-xs text-muted-foreground self-center">+{teamMembers.length - 6}</span>
+        )}
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 p-2 overflow-y-auto" ref={scrollRef}>
+        <div className="space-y-3">
+          {messages.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-4">No messages yet. Start the conversation!</p>
+          ) : (
+            messages.map((msg) => {
+              const isOwn = msg.sender_id === user?.id
+              return (
+                <div key={msg.id} className={`flex gap-2 ${isOwn ? "flex-row-reverse" : ""}`}>
+                  <Avatar className="h-6 w-6 flex-shrink-0">
+                    <AvatarImage src={msg.sender_avatar || ""} />
+                    <AvatarFallback className="text-[10px]">{getInitials(msg.sender_name)}</AvatarFallback>
+                  </Avatar>
+                  <div className={`max-w-[75%] ${isOwn ? "text-right" : ""}`}>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-xs font-medium">{isOwn ? "You" : msg.sender_name.split(" ")[0]}</span>
+                      <span className="text-[10px] text-muted-foreground">{formatTime(msg.created_at)}</span>
+                    </div>
+                    <p className={`text-sm p-2 rounded-lg ${isOwn ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                      {msg.message}
+                    </p>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
+
+      {/* Input */}
+      <div className="p-2 border-t flex gap-2">
+        <Input
+          ref={inputRef}
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
+          placeholder="Type a message..."
+          className="text-sm h-8"
+          disabled={isLoading}
+        />
+        <Button size="sm" className="h-8 w-8 p-0" onClick={sendMessage} disabled={isLoading || !newMessage.trim()}>
+          <IconSend className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+

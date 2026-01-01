@@ -278,7 +278,13 @@ export default function TeamPage() {
     // Pending invites stay as Pending
     if (member.status === "Pending") return "Pending"
 
-    // Check last_seen timestamp
+    // Manual statuses that should be respected regardless of last_seen
+    const manualStatuses = ["Away", "Busy", "Do not disturb", "Be right back", "Appear offline", "In a call", "In a meeting"]
+    if (manualStatuses.includes(member.status)) {
+      return member.status
+    }
+
+    // For Active/Online status, check last_seen to determine if actually online
     if (member.last_seen) {
       const lastSeenTime = new Date(member.last_seen).getTime()
       const timeSinceLastSeen = Date.now() - lastSeenTime
@@ -292,8 +298,8 @@ export default function TeamPage() {
       return "Offline"
     }
 
-    // Return the stored status
-    return member.status
+    // Return the stored status (Active/Online)
+    return member.status === "Active" ? "Available" : member.status
   }
 
   // MS Teams-style status colors
