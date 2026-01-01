@@ -36,10 +36,14 @@ import {
   IconDotsVertical,
   IconFile,
   IconDownload,
+  IconMoodSmile,
 } from "@tabler/icons-react"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
 import Swal from "sweetalert2"
+import { PrivateChatPanel } from "@/components/private-chat-dialog"
+import { ReactionPicker } from "@/components/reaction-picker"
+import { MessageReactions } from "@/components/message-reactions"
 
 // Chat background themes
 const CHAT_THEMES = [
@@ -110,6 +114,8 @@ export default function TeamChatPage() {
   const [selectedTheme, setSelectedTheme] = useState("default")
   const [selectedStatus, setSelectedStatus] = useState("Available")
   const [isBlocked, setIsBlocked] = useState(false)
+  const [privateChatMember, setPrivateChatMember] = useState<TeamMember | null>(null)
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -124,6 +130,48 @@ export default function TeamChatPage() {
     audioRef.current = new Audio(NOTIFICATION_SOUND)
     audioRef.current.volume = 0.5
   }, [])
+
+  // Fetch unread message counts for private chats
+  const fetchUnreadCounts = async () => {
+    if (!user || !ownerId) return
+
+    const { data } = await supabase
+      .from("private_messages")
+      .select("sender_id")
+      .eq("team_owner_id", ownerId)
+      .eq("receiver_id", user.id)
+      .eq("is_read", false)
+
+    if (data) {
+      const counts: Record<string, number> = {}
+      data.forEach((msg) => {
+        counts[msg.sender_id] = (counts[msg.sender_id] || 0) + 1
+      })
+      setUnreadCounts(counts)
+    }
+  }
+
+  // Fetch unread counts on mount and subscribe to changes
+  useEffect(() => {
+    if (!user || !ownerId) return
+
+    fetchUnreadCounts()
+
+    const channel = supabase
+      .channel(`unread-counts-${user.id}-${Date.now()}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "private_messages", filter: `receiver_id=eq.${user.id}` },
+        () => {
+          fetchUnreadCounts()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user, ownerId])
 
   // Play notification sound
   const playNotificationSound = () => {
@@ -186,24 +234,51 @@ export default function TeamChatPage() {
     fetchSettings()
   }, [user])
 
-  // Fetch team members - remove status filter to show all members
+  // Fetch team members - include owner/admin in the list
   useEffect(() => {
     const fetchTeamMembers = async () => {
-      if (!ownerId) return
+      if (!ownerId || !user) return
 
-      const { data } = await supabase
+      // Fetch team members
+      const { data: membersData } = await supabase
         .from("team_members")
-        .select("id, name, email, avatar_url, status, last_seen, user_id, is_chat_blocked, chat_nickname")
+        .select("id, name, email, avatar_url, status, last_seen, user_id, is_chat_blocked, chat_nickname, owner_name, owner_email, owner_avatar")
         .eq("owner_id", ownerId)
-        // Removed .eq("status", "Active") to show all members regardless of status
 
-      if (data) {
-        setTeamMembers(data)
+      // If user is NOT the owner, we need to add the owner to the list
+      if (!isTeamOwner && membersData && membersData.length > 0) {
+        // Get owner info from the first member record or fetch from profiles
+        const firstMember = membersData[0]
+
+        // Fetch owner profile for more accurate info
+        const { data: ownerProfile } = await supabase
+          .from("profiles")
+          .select("id, name, email, avatar_url, last_seen")
+          .eq("id", ownerId)
+          .single()
+
+        // Create owner entry
+        const ownerEntry: TeamMember = {
+          id: `owner-${ownerId}`,
+          name: ownerProfile?.name || firstMember.owner_name || "Team Owner",
+          email: ownerProfile?.email || firstMember.owner_email || "",
+          avatar_url: ownerProfile?.avatar_url || firstMember.owner_avatar || null,
+          status: "Active",
+          last_seen: ownerProfile?.last_seen || new Date().toISOString(),
+          user_id: ownerId,
+          is_chat_blocked: false,
+          chat_nickname: null,
+        }
+
+        // Add owner at the beginning, then other members
+        setTeamMembers([ownerEntry, ...membersData])
+      } else if (membersData) {
+        setTeamMembers(membersData)
       }
     }
 
     fetchTeamMembers()
-  }, [ownerId])
+  }, [ownerId, user, isTeamOwner])
 
   // Fetch messages
   const fetchMessages = async () => {
@@ -505,6 +580,29 @@ export default function TeamChatPage() {
   // Check if file is an image
   const isImage = (fileType?: string | null) => fileType?.startsWith("image/")
 
+  // Open private chat with a member
+  const openPrivateChat = (member: TeamMember) => {
+    if (member.user_id === user?.id) return // Don't allow chat with self
+    setPrivateChatMember(member)
+  }
+
+  // Add reaction to a message
+  const addReactionToMessage = async (messageId: string, type: "emoji", value: string) => {
+    if (!user) return
+
+    const { error } = await supabase.from("message_reactions").insert({
+      message_id: messageId,
+      user_id: user.id,
+      user_name: chatSettings?.nickname || user.name || user.email?.split("@")[0] || "User",
+      reaction_type: type,
+      reaction_value: value,
+    })
+
+    if (error && error.code !== "23505") { // Ignore duplicate key errors
+      console.error("Error adding reaction:", error)
+    }
+  }
+
   return (
     <SidebarProvider
       style={{
@@ -594,30 +692,50 @@ export default function TeamChatPage() {
                   </div>
                 )}
                 {/* Filter out current user from team members to avoid duplicate */}
-                {teamMembers.filter(member => member.user_id !== user?.id).map((member) => (
-                  <div key={member.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-muted/50 group">
+                {teamMembers.filter(member => member.user_id !== user?.id).map((member) => {
+                  const memberId = member.user_id || member.id
+                  const unreadCount = unreadCounts[memberId] || 0
+                  return (
+                  <div
+                    key={member.id}
+                    className={`flex items-center gap-2 p-2 rounded-lg hover:bg-muted/50 group cursor-pointer ${privateChatMember?.id === member.id ? "bg-primary/10" : ""}`}
+                    onClick={() => openPrivateChat(member)}
+                    title="Click to open private chat"
+                  >
                     <div className="relative">
                       <Avatar className="h-8 w-8">
                         <AvatarImage src={member.avatar_url || undefined} />
                         <AvatarFallback className="text-xs">{getInitials(member.name)}</AvatarFallback>
                       </Avatar>
                       <div className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background ${isOnline(member) ? "bg-green-500" : "bg-gray-400"}`} />
+                      {/* Unread badge */}
+                      {unreadCount > 0 && (
+                        <div className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-xs flex items-center justify-center font-bold">
+                          {unreadCount > 9 ? "9+" : unreadCount}
+                        </div>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">
                         {member.chat_nickname || member.name}
                         {member.is_chat_blocked && <Badge variant="destructive" className="ml-1 text-xs">Blocked</Badge>}
                       </p>
+                      <p className="text-xs text-muted-foreground">Click to chat</p>
                     </div>
                     {isTeamOwner && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <IconDotsVertical className="h-3 w-3" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => toggleBlockUser(member)}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); toggleBlockUser(member); }}>
                             <IconBan className="mr-2 h-4 w-4" />
                             {member.is_chat_blocked ? "Unblock from Chat" : "Block from Chat"}
                           </DropdownMenuItem>
@@ -625,11 +743,20 @@ export default function TeamChatPage() {
                       </DropdownMenu>
                     )}
                   </div>
-                ))}
+                  )
+                })}
               </CardContent>
             </Card>
 
-            {/* Chat Area */}
+            {/* Chat Area - Show Private Chat or Team Chat */}
+            {privateChatMember ? (
+              <PrivateChatPanel
+                member={privateChatMember}
+                teamOwnerId={ownerId || ""}
+                onBack={() => setPrivateChatMember(null)}
+                currentThemeClass={currentTheme.class}
+              />
+            ) : (
             <Card className="lg:col-span-3 flex flex-col max-h-full min-h-0">
               <CardHeader className="pb-3 border-b flex-shrink-0">
                 <CardTitle className="flex items-center gap-2">
@@ -653,7 +780,7 @@ export default function TeamChatPage() {
                       const isOwn = msg.sender_id === user?.id
                       const displayName = getDisplayName(msg.sender_id, msg.sender_name)
                       return (
-                        <div key={msg.id} className={`flex gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
+                        <div key={msg.id} className={`flex gap-3 group ${isOwn ? "flex-row-reverse" : ""}`}>
                           <Avatar className="h-8 w-8 flex-shrink-0">
                             <AvatarImage src={msg.sender_avatar || undefined} />
                             <AvatarFallback className="text-xs">{getInitials(msg.sender_name)}</AvatarFallback>
@@ -663,33 +790,48 @@ export default function TeamChatPage() {
                               <span className="text-xs font-medium">{isOwn ? "You" : displayName}</span>
                               <span className="text-xs text-muted-foreground">{formatTime(msg.created_at)}</span>
                             </div>
-                            <div className={`rounded-lg px-3 py-2 ${isOwn ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                              {msg.file_url && (
-                                <div className="mb-2">
-                                  {isImage(msg.file_type) ? (
-                                    <img
-                                      src={msg.file_url}
-                                      alt={msg.file_name || "Image"}
-                                      className="max-w-full max-h-48 rounded cursor-pointer"
-                                      onClick={() => window.open(msg.file_url!, "_blank")}
-                                    />
-                                  ) : (
-                                    <a
-                                      href={msg.file_url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="flex items-center gap-2 p-2 rounded bg-background/50 hover:bg-background/80"
-                                    >
-                                      <IconFile className="h-4 w-4" />
-                                      <span className="text-xs truncate">{msg.file_name}</span>
-                                      <IconDownload className="h-4 w-4 ml-auto" />
-                                    </a>
-                                  )}
-                                </div>
-                              )}
-                              {msg.message && !msg.message.startsWith("Shared a file:") && (
-                                <p className="text-sm whitespace-pre-wrap break-words">{msg.message}</p>
-                              )}
+                            <div className="relative">
+                              <div className={`rounded-lg px-3 py-2 ${isOwn ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                                {msg.file_url && (
+                                  <div className="mb-2">
+                                    {isImage(msg.file_type) ? (
+                                      <img
+                                        src={msg.file_url}
+                                        alt={msg.file_name || "Image"}
+                                        className="max-w-full max-h-48 rounded cursor-pointer"
+                                        onClick={() => window.open(msg.file_url!, "_blank")}
+                                      />
+                                    ) : (
+                                      <a
+                                        href={msg.file_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-2 p-2 rounded bg-background/50 hover:bg-background/80"
+                                      >
+                                        <IconFile className="h-4 w-4" />
+                                        <span className="text-xs truncate">{msg.file_name}</span>
+                                        <IconDownload className="h-4 w-4 ml-auto" />
+                                      </a>
+                                    )}
+                                  </div>
+                                )}
+                                {msg.message && !msg.message.startsWith("Shared a file:") && (
+                                  <p className="text-sm whitespace-pre-wrap break-words">{msg.message}</p>
+                                )}
+                              </div>
+                              {/* Reaction button - shows on hover */}
+                              <div className={`absolute top-0 opacity-0 group-hover:opacity-100 transition-opacity ${isOwn ? "left-0 -translate-x-full pr-1" : "right-0 translate-x-full pl-1"}`}>
+                                <ReactionPicker
+                                  onReact={(type, value) => addReactionToMessage(msg.id, type, value)}
+                                  trigger={
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full bg-background/80 hover:bg-background shadow-sm">
+                                      <IconMoodSmile className="h-3 w-3" />
+                                    </Button>
+                                  }
+                                />
+                              </div>
+                              {/* Message reactions display */}
+                              <MessageReactions messageId={msg.id} />
                             </div>
                           </div>
                         </div>
@@ -742,6 +884,7 @@ export default function TeamChatPage() {
                 )}
               </CardContent>
             </Card>
+            )}
           </div>
         </div>
       </SidebarInset>
