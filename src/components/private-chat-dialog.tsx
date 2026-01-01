@@ -3,11 +3,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { IconSend, IconArrowLeft, IconUpload, IconFile, IconDownload, IconCornerDownLeft, IconX } from "@tabler/icons-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { IconSend, IconArrowLeft, IconUpload, IconFile, IconDownload, IconCornerDownLeft, IconX, IconDotsVertical, IconTrash, IconExternalLink } from "@tabler/icons-react"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import { ReactionPicker } from "./reaction-picker"
 import { MessageReactions } from "./message-reactions"
+import { MediaPicker } from "./media-picker"
+import { playNotificationSound } from "@/lib/notification-sounds"
+import Swal from "sweetalert2"
 
 export interface PrivateMessage {
   id: string
@@ -43,9 +53,11 @@ interface PrivateChatPanelProps {
   teamOwnerId: string
   onBack: () => void
   currentThemeClass?: string
+  onPopOut?: () => void
+  isPopOut?: boolean
 }
 
-export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClass }: PrivateChatPanelProps) {
+export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClass, onPopOut, isPopOut }: PrivateChatPanelProps) {
   const { user } = useAuth()
   const [messages, setMessages] = useState<PrivateMessage[]>([])
   const [newMessage, setNewMessage] = useState("")
@@ -55,6 +67,10 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Dark mode for Swal
+  const isDark = document.documentElement.classList.contains("dark")
+  const getSwalTheme = () => ({ background: isDark ? "#171717" : "#ffffff", color: isDark ? "#ffffff" : "#171717" })
+
   const getInitials = (name: string) => name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
 
   const formatTime = (dateString: string) => {
@@ -63,6 +79,52 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
   }
 
   const getMemberId = () => member?.user_id || member?.id
+
+  // Delete individual message
+  const deleteMessage = async (messageId: string) => {
+    const result = await Swal.fire({
+      title: "Delete message?",
+      text: "This message will be deleted for everyone.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#ef4444",
+      confirmButtonText: "Delete",
+      ...getSwalTheme(),
+    })
+
+    if (result.isConfirmed) {
+      await supabase.from("private_messages").delete().eq("id", messageId)
+      setMessages((prev) => prev.filter((m) => m.id !== messageId))
+    }
+  }
+
+  // Clear all messages between users
+  const clearAllMessages = async () => {
+    if (!user || !member) return
+    const memberId = getMemberId()
+
+    const result = await Swal.fire({
+      title: "Clear all messages?",
+      text: "This will delete all messages between you and this person. This cannot be undone.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#ef4444",
+      confirmButtonText: "Clear All",
+      ...getSwalTheme(),
+    })
+
+    if (result.isConfirmed) {
+      // Delete messages where current user is sender or receiver with this member
+      await supabase
+        .from("private_messages")
+        .delete()
+        .eq("team_owner_id", teamOwnerId)
+        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${memberId}),and(sender_id.eq.${memberId},receiver_id.eq.${user.id})`)
+
+      setMessages([])
+      Swal.fire({ title: "Cleared!", text: "All messages have been deleted.", icon: "success", ...getSwalTheme() })
+    }
+  }
 
   // Check if file is an image
   const isImage = (fileType?: string | null) => fileType?.startsWith("image/")
@@ -113,9 +175,10 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
               if (prev.some(m => m.id === newMsg.id)) return prev
               return [...prev, newMsg]
             })
-            // Mark as read if received
+            // Mark as read if received and play notification sound
             if (newMsg.receiver_id === user.id) {
               supabase.from("private_messages").update({ is_read: true }).eq("id", newMsg.id)
+              playNotificationSound()
             }
           }
         }
@@ -229,7 +292,7 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
   }
 
   return (
-    <Card className="flex flex-col h-full">
+    <Card className={`flex flex-col h-full ${isPopOut ? "border-0 shadow-none" : ""}`}>
       {/* Header */}
       <CardHeader className="pb-3 border-b flex-shrink-0">
         <div className="flex items-center gap-3">
@@ -246,6 +309,29 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
             </CardTitle>
             <p className="text-xs text-muted-foreground truncate">{member.email}</p>
           </div>
+          {/* Actions menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <IconDotsVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {!isPopOut && onPopOut && (
+                <>
+                  <DropdownMenuItem onClick={onPopOut}>
+                    <IconExternalLink className="h-4 w-4 mr-2" />
+                    Pop Out Chat
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              <DropdownMenuItem onClick={clearAllMessages} className="text-red-500 focus:text-red-500">
+                <IconTrash className="h-4 w-4 mr-2" />
+                Clear All Messages
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </CardHeader>
 
@@ -327,6 +413,14 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
                             </Button>
                           }
                         />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 rounded-full bg-background/80 hover:bg-red-100 hover:text-red-500 shadow-sm"
+                          onClick={() => deleteMessage(msg.id)}
+                        >
+                          <IconTrash className="h-3 w-3" />
+                        </Button>
                       </div>
                       <MessageReactions messageId={msg.id} tableName="private_message_reactions" />
                     </div>
@@ -369,6 +463,14 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
             >
               <IconUpload className="h-4 w-4" />
             </Button>
+            <MediaPicker
+              onSelectEmoji={(emoji) => setNewMessage((prev) => prev + emoji)}
+              onSelectGif={(gifUrl) => sendMessage(gifUrl, "GIF", "image/gif")}
+              onSelectSticker={(sticker) => {
+                setNewMessage(sticker)
+                setTimeout(() => sendMessage(), 100)
+              }}
+            />
             <Input
               ref={inputRef}
               value={newMessage}

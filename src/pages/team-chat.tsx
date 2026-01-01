@@ -39,6 +39,8 @@ import {
   IconMoodSmile,
   IconCornerDownLeft,
   IconX,
+  IconVolume,
+  IconPhoto,
 } from "@tabler/icons-react"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
@@ -46,15 +48,30 @@ import Swal from "sweetalert2"
 import { PrivateChatPanel } from "@/components/private-chat-dialog"
 import { ReactionPicker } from "@/components/reaction-picker"
 import { MessageReactions } from "@/components/message-reactions"
+import { MediaPicker } from "@/components/media-picker"
+import { NotificationSoundSettings } from "@/components/notification-sound-settings"
+import { playNotificationSound } from "@/lib/notification-sounds"
 
-// Chat background themes
+// Chat background themes with better light mode support
 const CHAT_THEMES = [
-  { id: "default", name: "Default", class: "" },
-  { id: "gradient-blue", name: "Blue Gradient", class: "bg-gradient-to-br from-blue-500/10 to-purple-500/10" },
-  { id: "gradient-green", name: "Green Gradient", class: "bg-gradient-to-br from-green-500/10 to-teal-500/10" },
-  { id: "gradient-orange", name: "Sunset", class: "bg-gradient-to-br from-orange-500/10 to-pink-500/10" },
-  { id: "gradient-dark", name: "Dark Mode", class: "bg-neutral-900/50" },
-  { id: "pattern-dots", name: "Dots Pattern", class: "bg-[radial-gradient(circle,_rgba(255,255,255,0.1)_1px,_transparent_1px)] bg-[size:20px_20px]" },
+  { id: "default", name: "Default", class: "", style: {} },
+  { id: "gradient-blue", name: "Blue Gradient", class: "bg-gradient-to-br from-blue-500/20 to-purple-500/20 dark:from-blue-500/10 dark:to-purple-500/10", style: {} },
+  { id: "gradient-green", name: "Green Gradient", class: "bg-gradient-to-br from-green-500/20 to-teal-500/20 dark:from-green-500/10 dark:to-teal-500/10", style: {} },
+  { id: "gradient-orange", name: "Sunset", class: "bg-gradient-to-br from-orange-500/20 to-pink-500/20 dark:from-orange-500/10 dark:to-pink-500/10", style: {} },
+  { id: "gradient-purple", name: "Purple Haze", class: "bg-gradient-to-br from-purple-500/20 to-indigo-500/20 dark:from-purple-500/10 dark:to-indigo-500/10", style: {} },
+  { id: "pattern-dots", name: "Dots Pattern", class: "bg-[radial-gradient(circle,_rgba(0,0,0,0.08)_1px,_transparent_1px)] dark:bg-[radial-gradient(circle,_rgba(255,255,255,0.1)_1px,_transparent_1px)] bg-[size:20px_20px]", style: {} },
+  { id: "pattern-grid", name: "Grid Pattern", class: "bg-[linear-gradient(rgba(0,0,0,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.05)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:20px_20px]", style: {} },
+  { id: "custom", name: "Custom Image", class: "", style: {} },
+]
+
+// Background image presets
+const BACKGROUND_IMAGES = [
+  { id: "mountains", name: "Mountains", url: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80" },
+  { id: "ocean", name: "Ocean", url: "https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=1920&q=80" },
+  { id: "forest", name: "Forest", url: "https://images.unsplash.com/photo-1448375240586-882707db888b?w=1920&q=80" },
+  { id: "city", name: "City Night", url: "https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=1920&q=80" },
+  { id: "abstract", name: "Abstract", url: "https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=1920&q=80" },
+  { id: "space", name: "Space", url: "https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?w=1920&q=80" },
 ]
 
 // Status options
@@ -102,9 +119,6 @@ interface ChatSettings {
   status: string | null
 }
 
-// Notification sound - using a base64 encoded short beep sound
-const NOTIFICATION_SOUND = "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleBoRHoTG7umUUDs8oNnlv3kdAB5+xt/fkz0yPKbV5b5zFQAmdMvf4pRAPDmj0+S8cBIAL3zL3N+QPTI7pNTkvHASAC98y9zfkD0yO6TU5LxwEgAvfMvc35A9MjwR"
-
 export default function TeamChatPage() {
   const { user } = useAuth()
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -122,19 +136,25 @@ export default function TeamChatPage() {
   const [privateChatMember, setPrivateChatMember] = useState<TeamMember | null>(null)
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
+  const [popOutMember, setPopOutMember] = useState<TeamMember | null>(null)
+  const [isSoundSettingsOpen, setIsSoundSettingsOpen] = useState(false)
+  const [isBackgroundDialogOpen, setIsBackgroundDialogOpen] = useState(false)
+  const [customBackgroundImage, setCustomBackgroundImage] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   // Dark mode for Swal
   const isDark = document.documentElement.classList.contains("dark")
   const getSwalTheme = () => ({ background: isDark ? "#171717" : "#ffffff", color: isDark ? "#ffffff" : "#171717" })
 
-  // Initialize audio for notifications
+  // Load custom background from localStorage
   useEffect(() => {
-    audioRef.current = new Audio(NOTIFICATION_SOUND)
-    audioRef.current.volume = 0.5
+    const savedBg = localStorage.getItem("chat_background_image")
+    if (savedBg) {
+      setCustomBackgroundImage(savedBg)
+      setSelectedTheme("custom")
+    }
   }, [])
 
   // Fetch unread message counts for private chats
@@ -178,16 +198,6 @@ export default function TeamChatPage() {
       supabase.removeChannel(channel)
     }
   }, [user, ownerId])
-
-  // Play notification sound
-  const playNotificationSound = () => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = 0
-      audioRef.current.play().catch(() => {
-        // Ignore errors (e.g., if user hasn't interacted with page yet)
-      })
-    }
-  }
 
   // Determine the owner_id (team owner's ID for chat room)
   useEffect(() => {
@@ -584,8 +594,25 @@ export default function TeamChatPage() {
     return Date.now() - lastSeen < 2 * 60 * 1000 // 2 minutes
   }
 
-  // Get current theme class
+  // Get current theme class and background style
   const currentTheme = CHAT_THEMES.find(t => t.id === selectedTheme) || CHAT_THEMES[0]
+  const backgroundStyle = selectedTheme === "custom" && customBackgroundImage
+    ? { backgroundImage: `url(${customBackgroundImage})`, backgroundSize: "cover", backgroundPosition: "center" }
+    : {}
+
+  // Save background image
+  const saveBackgroundImage = (imageUrl: string | null) => {
+    if (imageUrl) {
+      localStorage.setItem("chat_background_image", imageUrl)
+      setCustomBackgroundImage(imageUrl)
+      setSelectedTheme("custom")
+    } else {
+      localStorage.removeItem("chat_background_image")
+      setCustomBackgroundImage(null)
+      setSelectedTheme("default")
+    }
+    setIsBackgroundDialogOpen(false)
+  }
 
   // Check if file is an image
   const isImage = (fileType?: string | null) => fileType?.startsWith("image/")
@@ -643,6 +670,10 @@ export default function TeamChatPage() {
                   <IconUser className="mr-2 h-4 w-4" />
                   Set Nickname
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsSoundSettingsOpen(true)}>
+                  <IconVolume className="mr-2 h-4 w-4" />
+                  Notification Sound
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <div className="px-2 py-1.5 text-sm font-semibold">Status</div>
                 {STATUS_OPTIONS.map((status) => (
@@ -654,13 +685,18 @@ export default function TeamChatPage() {
                 ))}
                 <DropdownMenuSeparator />
                 <div className="px-2 py-1.5 text-sm font-semibold">Theme</div>
-                {CHAT_THEMES.map((theme) => (
-                  <DropdownMenuItem key={theme.id} onClick={() => saveTheme(theme.id)}>
+                {CHAT_THEMES.filter(t => t.id !== "custom").map((theme) => (
+                  <DropdownMenuItem key={theme.id} onClick={() => { saveTheme(theme.id); setCustomBackgroundImage(null); localStorage.removeItem("chat_background_image"); }}>
                     <IconPalette className="mr-2 h-4 w-4" />
                     {theme.name}
-                    {selectedTheme === theme.id && <IconCircleCheck className="ml-auto h-4 w-4" />}
+                    {selectedTheme === theme.id && !customBackgroundImage && <IconCircleCheck className="ml-auto h-4 w-4" />}
                   </DropdownMenuItem>
                 ))}
+                <DropdownMenuItem onClick={() => setIsBackgroundDialogOpen(true)}>
+                  <IconPhoto className="mr-2 h-4 w-4" />
+                  Background Image...
+                  {selectedTheme === "custom" && customBackgroundImage && <IconCircleCheck className="ml-auto h-4 w-4" />}
+                </DropdownMenuItem>
                 {isTeamOwner && (
                   <>
                     <DropdownMenuSeparator />
@@ -765,6 +801,10 @@ export default function TeamChatPage() {
                 teamOwnerId={ownerId || ""}
                 onBack={() => setPrivateChatMember(null)}
                 currentThemeClass={currentTheme.class}
+                onPopOut={() => {
+                  setPopOutMember(privateChatMember)
+                  setPrivateChatMember(null)
+                }}
               />
             ) : (
             <Card className="lg:col-span-3 flex flex-col max-h-full min-h-0">
@@ -779,7 +819,7 @@ export default function TeamChatPage() {
                 <div
                   ref={scrollRef}
                   className={`flex-1 overflow-y-auto p-4 space-y-4 min-h-0 ${currentTheme.class}`}
-                  style={{ maxHeight: "calc(100vh - 320px)" }}
+                  style={{ maxHeight: "calc(100vh - 320px)", ...backgroundStyle }}
                 >
                   {messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -906,6 +946,14 @@ export default function TeamChatPage() {
                       >
                         <IconUpload className="h-4 w-4" />
                       </Button>
+                      <MediaPicker
+                        onSelectEmoji={(emoji) => setNewMessage((prev) => prev + emoji)}
+                        onSelectGif={(gifUrl) => sendMessage(gifUrl, "GIF", "image/gif")}
+                        onSelectSticker={(sticker) => {
+                          setNewMessage(sticker)
+                          setTimeout(() => sendMessage(), 100)
+                        }}
+                      />
                       <Input
                         ref={inputRef}
                         value={newMessage}
@@ -956,6 +1004,87 @@ export default function TeamChatPage() {
             <Button variant="outline" onClick={() => setIsNicknameOpen(false)}>Cancel</Button>
             <Button onClick={saveNickname}>Save Nickname</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Pop-out Private Chat Dialog */}
+      <Dialog open={!!popOutMember} onOpenChange={(open) => !open && setPopOutMember(null)}>
+        <DialogContent className="max-w-lg h-[600px] p-0 overflow-hidden">
+          {popOutMember && (
+            <PrivateChatPanel
+              member={popOutMember}
+              teamOwnerId={ownerId || ""}
+              onBack={() => setPopOutMember(null)}
+              currentThemeClass={currentTheme.class}
+              isPopOut
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Notification Sound Settings Dialog */}
+      <NotificationSoundSettings
+        open={isSoundSettingsOpen}
+        onOpenChange={setIsSoundSettingsOpen}
+      />
+
+      {/* Background Image Dialog */}
+      <Dialog open={isBackgroundDialogOpen} onOpenChange={setIsBackgroundDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Choose Background Image</DialogTitle>
+            <DialogDescription>
+              Select a preset background or enter a custom image URL.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              {BACKGROUND_IMAGES.map((bg) => (
+                <button
+                  key={bg.id}
+                  onClick={() => saveBackgroundImage(bg.url)}
+                  className={`relative aspect-video rounded-lg overflow-hidden border-2 transition-all hover:scale-105 ${
+                    customBackgroundImage === bg.url ? "border-primary ring-2 ring-primary" : "border-border"
+                  }`}
+                >
+                  <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
+                  <div className="absolute inset-x-0 bottom-0 bg-black/50 text-white text-xs py-1 text-center">
+                    {bg.name}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <Label>Custom Image URL</Label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="https://example.com/image.jpg"
+                  defaultValue={customBackgroundImage || ""}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const input = e.target as HTMLInputElement
+                      if (input.value.trim()) {
+                        saveBackgroundImage(input.value.trim())
+                      }
+                    }
+                  }}
+                />
+                <Button onClick={(e) => {
+                  const input = (e.target as HTMLButtonElement).previousElementSibling as HTMLInputElement
+                  if (input?.value?.trim()) {
+                    saveBackgroundImage(input.value.trim())
+                  }
+                }}>
+                  Apply
+                </Button>
+              </div>
+            </div>
+            {customBackgroundImage && (
+              <Button variant="outline" className="w-full" onClick={() => saveBackgroundImage(null)}>
+                Remove Background Image
+              </Button>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </SidebarProvider>
