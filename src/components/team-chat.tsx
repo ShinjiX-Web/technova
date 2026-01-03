@@ -73,11 +73,9 @@ export function TeamChat({ teamMembers, ownerId }: TeamChatProps) {
   // Fetch messages
   const fetchMessages = async () => {
     if (!ownerId) {
-      console.log("fetchMessages: No ownerId")
       return
     }
 
-    // console.log("Fetching messages for owner:", ownerId)
     const { data, error } = await supabase
       .from("team_messages")
       .select("*")
@@ -85,7 +83,6 @@ export function TeamChat({ teamMembers, ownerId }: TeamChatProps) {
       .order("created_at", { ascending: true })
       .limit(100)
 
-    console.log("Messages fetched:", data?.length, "error:", error)
     if (!error && data) {
       setMessages(data)
     }
@@ -128,7 +125,6 @@ export function TeamChat({ teamMembers, ownerId }: TeamChatProps) {
   // Send message
   const sendMessage = async () => {
     if (!newMessage.trim() || !user || !ownerId) {
-      console.log("Cannot send - missing:", { message: newMessage.trim(), user: !!user, ownerId })
       return
     }
 

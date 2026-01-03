@@ -23,11 +23,9 @@ export default function AuthCallback() {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         // User is authenticated, redirect to dashboard
-        console.log("Auth callback: User authenticated:", user.email)
         navigate("/dashboard", { replace: true })
       } else {
         // No user, redirect to login
-        console.log("Auth callback: No user found, redirecting to login")
         navigate("/login", { replace: true })
       }
     })

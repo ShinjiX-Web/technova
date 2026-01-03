@@ -7,8 +7,6 @@ export default async function handler(req, res) {
 
   const { email, otp, type } = req.body;
 
-  console.log('📧 OTP email request:', { email, type, hasOtp: !!otp });
-
   if (!email || !otp) {
     return res.status(400).json({ error: 'Email and OTP are required' });
   }
@@ -89,11 +87,8 @@ export default async function handler(req, res) {
       });
     }
 
-    console.log('✅ Email sent successfully:', data.id);
     return res.status(200).json({ success: true, messageId: data.id });
   } catch (error) {
-    console.error('Email send error:', error.message || error);
     return res.status(500).json({ error: 'Failed to send email', message: error.message });
   }
 }
-

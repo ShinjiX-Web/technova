@@ -49,8 +49,8 @@ export function usePresence() {
         })
         .eq('user_id', user.id)
 
-      // Log errors but don't throw - user might not have any team_members entries yet
-      if (memberError) console.log('Member presence update:', memberError.message)
+      // Ignore errors - user might not have any team_members entries yet
+      void memberError
     } catch (error) {
       console.error('Error updating presence:', error)
     }

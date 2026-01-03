@@ -67,9 +67,6 @@ function generateOtp(): string {
 // Send OTP email via Resend API - returns { success, fallback } where fallback=true means show OTP in UI
 async function sendOtpEmail(email: string, otp: string, type: "login" | "signup" | "reset-password"): Promise<{ success: boolean; fallback: boolean }> {
   try {
-    console.log('📧 Sending OTP email to:', email, 'type:', type);
-    console.trace('📧 sendOtpEmail called from:');
-
     // Add timeout to prevent hanging on cold starts
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
@@ -85,21 +82,16 @@ async function sendOtpEmail(email: string, otp: string, type: "login" | "signup"
 
     clearTimeout(timeoutId);
 
-    const data = await response.json().catch(() => ({}));
+    await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      console.error('Failed to send OTP email:', response.status, data);
-      // Return fallback mode - email failed but we can still show OTP for testing
-      console.log('🔑 [DEV MODE] OTP code:', otp);
+      // Return fallback mode - email failed but we can still show OTP for dev/testing
       return { success: false, fallback: true };
     }
 
-    console.log('✅ OTP email sent successfully');
     return { success: true, fallback: false };
-  } catch (error) {
-    console.error('Error sending OTP email:', error);
+  } catch {
     // Return fallback mode on network errors too
-    console.log('🔑 [DEV MODE] OTP code:', otp);
     return { success: false, fallback: true };
   }
 }
@@ -218,11 +210,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Subscribe to Firebase auth state changes
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.log('🔥 Firebase auth state changed:', firebaseUser?.email || 'null', 'authInProgress:', authInProgressRef.current)
-
       // Skip auth state updates during signup/login flow to prevent race conditions
       if (authInProgressRef.current) {
-        console.log('🔥 Skipping auth state update - auth in progress')
         return
       }
 
@@ -230,7 +219,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await setUserFromFirebase(firebaseUser)
       } else {
         if (isMounted) {
-          console.log('🔥 User signed out, keeping pendingAuth if exists')
           setUser(null)
           setIsLoading(false)
         }
@@ -244,7 +232,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = async (email: string, password: string): Promise<AuthResult> => {
-    console.log('🔐 LOGIN called for:', email)
     const normalizedEmail = email.toLowerCase().trim()
 
     // Set flag to prevent auth state listener from triggering during login
@@ -326,7 +313,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signup = async (name: string, email: string, password: string): Promise<AuthResult> => {
-    console.log('🔐 SIGNUP called for:', email)
     const normalizedEmail = email.toLowerCase().trim()
 
     // Set flag to prevent auth state listener from triggering during signup
@@ -347,7 +333,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const otpCode = generateOtp()
         const emailResult = await sendOtpEmail(normalizedEmail, otpCode, "signup")
 
-        console.log('🔑 Setting pendingAuth for signup OTP')
         setPendingAuth({
           type: "signup",
           email: normalizedEmail,
@@ -355,7 +340,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           password,
           otpCode,
         })
-        console.log('🔑 pendingAuth set - OTP form should show now')
 
         // Clear the flag - auth flow is complete, OTP form should show
         authInProgressRef.current = false
@@ -594,7 +578,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (checkResponse.status === 404) {
           // API not available (local dev) - try client-side check
           apiAvailable = false
-          console.log('🔑 check-user API not available, using client-side check')
         } else {
           const checkData = await checkResponse.json()
           userExists = checkResponse.ok && checkData.exists
@@ -602,7 +585,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         // Network error - API not available
         apiAvailable = false
-        console.log('🔑 check-user API error, using client-side check')
       }
 
       // If API not available, try client-side check by attempting sign-in

@@ -362,9 +362,7 @@ export default function TeamChatPage() {
           }
         }
       )
-      .subscribe((status) => {
-        console.log("Realtime subscription status:", status)
-      })
+      .subscribe()
 
     return () => {
       supabase.removeChannel(channel)

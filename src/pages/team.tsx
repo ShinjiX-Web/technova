@@ -362,7 +362,6 @@ export default function TeamPage() {
     setIsSaving(true)
     try {
       // Create team member record with owner info for display
-      console.log("Inserting team member with owner_id:", user?.id)
       const { data: insertData, error: insertError } = await supabase
         .from("team_members")
         .insert({
@@ -379,9 +378,8 @@ export default function TeamPage() {
         })
         .select()
 
-      console.log("Insert result:", { insertData, insertError })
-
       if (insertError) throw insertError
+      void insertData
 
       // Send invitation email with timeout
       let emailSent = false
