@@ -107,7 +107,7 @@ export default function WordAssistantPage() {
                   placeholder="Enter your text here..."
                   className="min-h-[300px] resize-none"
                   value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setInputText(e.target.value)}
                 />
                 <div className="flex items-center justify-between mt-3">
                   <span className="text-xs text-muted-foreground">{inputText.length} characters</span>

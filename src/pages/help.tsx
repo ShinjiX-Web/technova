@@ -12,7 +12,6 @@ import {
   IconMessageCircle,
   IconMail,
   IconVideo,
-  IconChevronRight,
   IconExternalLink,
 } from "@tabler/icons-react"
 import {
