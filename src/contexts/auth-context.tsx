@@ -580,16 +580,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const normalizedEmail = email.toLowerCase().trim()
 
     try {
-      // Check if user exists via server-side API (now checks Firebase)
-      const checkResponse = await fetch('/api/auth/check-user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: normalizedEmail }),
-      })
+      let userExists = false
+      let apiAvailable = true
 
-      const checkData = await checkResponse.json()
+      // Check if user exists via server-side API (checks Firebase via Admin SDK)
+      try {
+        const checkResponse = await fetch('/api/auth/check-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: normalizedEmail }),
+        })
 
-      if (!checkResponse.ok || !checkData.exists) {
+        if (checkResponse.status === 404) {
+          // API not available (local dev) - try client-side check
+          apiAvailable = false
+          console.log('🔑 check-user API not available, using client-side check')
+        } else {
+          const checkData = await checkResponse.json()
+          userExists = checkResponse.ok && checkData.exists
+        }
+      } catch {
+        // Network error - API not available
+        apiAvailable = false
+        console.log('🔑 check-user API error, using client-side check')
+      }
+
+      // If API not available, try client-side check by attempting sign-in
+      if (!apiAvailable) {
+        try {
+          // Try to sign in with a dummy password - Firebase will tell us if user exists
+          await signInWithEmailAndPassword(auth, normalizedEmail, 'dummy-password-check-12345')
+          // If we get here, user exists (but wrong password)
+          userExists = true
+        } catch (error: unknown) {
+          const firebaseError = error as { code?: string }
+          // These errors mean the user EXISTS but password is wrong
+          if (firebaseError.code === 'auth/wrong-password' ||
+              firebaseError.code === 'auth/invalid-credential' ||
+              firebaseError.code === 'auth/too-many-requests') {
+            userExists = true
+          }
+          // auth/user-not-found means user doesn't exist
+          // Other errors - assume user might exist to be safe
+          else if (firebaseError.code !== 'auth/user-not-found') {
+            userExists = true
+          }
+        }
+      }
+
+      if (!userExists) {
         return { success: false, error: "No account found with this email address" }
       }
 
