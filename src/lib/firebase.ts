@@ -9,7 +9,13 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
-  type User as FirebaseUser
+  RecaptchaVerifier,
+  getMultiFactorResolver,
+  PhoneAuthProvider,
+  PhoneMultiFactorGenerator,
+  type User as FirebaseUser,
+  type MultiFactorResolver,
+  type MultiFactorError
 } from 'firebase/auth'
 
 const firebaseConfig = {
@@ -50,6 +56,11 @@ export {
   signOut,
   onAuthStateChanged,
   updateProfile,
-  type FirebaseUser
+  RecaptchaVerifier,
+  getMultiFactorResolver,
+  PhoneAuthProvider,
+  PhoneMultiFactorGenerator,
+  type FirebaseUser,
+  type MultiFactorResolver,
+  type MultiFactorError
 }
-

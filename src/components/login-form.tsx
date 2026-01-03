@@ -20,6 +20,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/contexts/auth-context"
 import { OTPForm } from "@/components/otp-form"
+import { MFAForm } from "@/components/mfa-form"
 
 interface LoginFormProps extends React.ComponentProps<"div"> {
   onToggle?: () => void
@@ -36,7 +37,7 @@ export function LoginForm({
   const [error, setError] = useState("")
   const [devOtp, setDevOtp] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const { login, pendingAuth, loginWithGoogle, loginWithGitHub, isAuthenticated } = useAuth()
+  const { login, pendingAuth, pendingMfa, loginWithGoogle, loginWithGitHub, isAuthenticated } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -74,6 +75,15 @@ export function LoginForm({
     if (!result.success && result.error) {
       setError(result.error)
     }
+  }
+
+  // Show MFA form if multi-factor authentication is required
+  if (pendingMfa) {
+    return (
+      <div className={cn("flex flex-col gap-6", className)} {...props}>
+        <MFAForm />
+      </div>
+    )
   }
 
   // Show OTP form if we have pending auth from login (but not if already authenticated)
