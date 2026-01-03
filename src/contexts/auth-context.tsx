@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react"
 import { supabase } from "@/lib/supabase"
 import {
   auth,
@@ -147,6 +147,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [pendingAuth, setPendingAuth] = useState<PendingAuth | null>(null)
+  // Ref to track if auth operation is in progress (prevents race conditions with auth state listener)
+  const authInProgressRef = useRef(false)
 
   // Check for existing session on mount and subscribe to Firebase auth changes
   useEffect(() => {
@@ -216,12 +218,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Subscribe to Firebase auth state changes
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      // console.log('Firebase auth state changed:', firebaseUser?.email)
+      console.log('🔥 Firebase auth state changed:', firebaseUser?.email || 'null', 'authInProgress:', authInProgressRef.current)
+
+      // Skip auth state updates during signup/login flow to prevent race conditions
+      if (authInProgressRef.current) {
+        console.log('🔥 Skipping auth state update - auth in progress')
+        return
+      }
 
       if (firebaseUser) {
         await setUserFromFirebase(firebaseUser)
       } else {
         if (isMounted) {
+          console.log('🔥 User signed out, keeping pendingAuth if exists')
           setUser(null)
           setIsLoading(false)
         }
@@ -237,6 +246,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string): Promise<AuthResult> => {
     console.log('🔐 LOGIN called for:', email)
     const normalizedEmail = email.toLowerCase().trim()
+
+    // Set flag to prevent auth state listener from triggering during login
+    authInProgressRef.current = true
 
     try {
       // Verify credentials with Firebase
@@ -257,6 +269,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           otpCode,
         })
 
+        // Clear the flag - auth flow is complete, OTP form should show
+        authInProgressRef.current = false
+
         // If email failed but fallback is enabled, return with devOtp for testing
         if (!emailResult.success && emailResult.fallback) {
           return { success: true, needsOtp: true, devOtp: otpCode }
@@ -265,8 +280,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: true, needsOtp: true }
       }
 
+      authInProgressRef.current = false
       return { success: false, error: "Login failed" }
     } catch (error: unknown) {
+      authInProgressRef.current = false
       console.error('Login error:', error)
 
       const firebaseError = error as { code?: string; message?: string }
@@ -312,6 +329,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('🔐 SIGNUP called for:', email)
     const normalizedEmail = email.toLowerCase().trim()
 
+    // Set flag to prevent auth state listener from triggering during signup
+    authInProgressRef.current = true
+
     try {
       // Sign up with Firebase
       const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password)
@@ -327,6 +347,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const otpCode = generateOtp()
         const emailResult = await sendOtpEmail(normalizedEmail, otpCode, "signup")
 
+        console.log('🔑 Setting pendingAuth for signup OTP')
         setPendingAuth({
           type: "signup",
           email: normalizedEmail,
@@ -334,6 +355,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           password,
           otpCode,
         })
+        console.log('🔑 pendingAuth set - OTP form should show now')
+
+        // Clear the flag - auth flow is complete, OTP form should show
+        authInProgressRef.current = false
 
         // If email failed but fallback is enabled, return with devOtp for testing
         if (!emailResult.success && emailResult.fallback) {
@@ -343,8 +368,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: true, needsOtp: true }
       }
 
+      authInProgressRef.current = false
       return { success: false, error: "Signup failed" }
     } catch (error: unknown) {
+      authInProgressRef.current = false
       console.error('Signup error:', error)
 
       const firebaseError = error as { code?: string; message?: string }

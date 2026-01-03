@@ -86,7 +86,9 @@ export function SignupForm({ className, onToggle, ...props }: SignupFormProps) {
   }
 
   // Show OTP form if we have pending auth from signup
+  console.log('📋 SignupForm render - pendingAuth:', pendingAuth?.type, 'email:', pendingAuth?.email)
   if (pendingAuth?.type === "signup") {
+    console.log('📋 Showing OTP form for signup')
     return (
       <div className={cn("flex flex-col gap-6", className)} {...props}>
         <OTPForm devOtp={devOtp} />
