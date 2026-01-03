@@ -2,7 +2,6 @@ import { initializeApp } from 'firebase/app'
 import {
   getAuth,
   GoogleAuthProvider,
-  GithubAuthProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -44,12 +43,9 @@ googleProvider.setCustomParameters({
   prompt: 'select_account'
 })
 
-const githubProvider = new GithubAuthProvider()
-
 export {
   auth,
   googleProvider,
-  githubProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,

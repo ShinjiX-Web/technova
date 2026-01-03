@@ -3,7 +3,6 @@ import { supabase } from "@/lib/supabase"
 import {
   auth,
   googleProvider,
-  githubProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -68,8 +67,8 @@ interface AuthContextType {
   cancelOtp: () => void
   logout: () => void
   loginWithGoogle: () => Promise<{ success: boolean; error?: string; needsMfa?: boolean; mfaPhoneHint?: string }>
-  loginWithGitHub: () => Promise<{ success: boolean; error?: string; needsMfa?: boolean; mfaPhoneHint?: string }>
-  handleOAuthCallback: (userData: User) => void
+  loginWithGitHub: () => Promise<{ success: boolean; error?: string }>
+  handleOAuthCallback: (userData: User) => Promise<void>
   requestPasswordReset: (email: string) => Promise<AuthResult>
   verifyResetOtp: (code: string) => Promise<boolean>
   resetPassword: (newPassword: string) => Promise<{ success: boolean; error?: string }>
@@ -706,75 +705,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // OAuth login with GitHub using Firebase popup
-  const loginWithGitHub = async (): Promise<{ success: boolean; error?: string; needsMfa?: boolean; mfaPhoneHint?: string }> => {
+  // OAuth login with GitHub - redirects to GitHub OAuth flow via API
+  const loginWithGitHub = async (): Promise<{ success: boolean; error?: string }> => {
     try {
-      const result = await signInWithPopup(auth, githubProvider)
-
-      if (result.user) {
-        // Create/update profile in Supabase for OAuth users
-        await supabase.from('profiles').upsert({
-          id: result.user.uid,
-          name: result.user.displayName || '',
-          email: result.user.email || '',
-          avatar_url: result.user.photoURL || null,
-          oauth_provider: 'github',
-          updated_at: new Date().toISOString(),
-        })
-
-        // Link any pending team invitations
-        if (result.user.email) {
-          await supabase
-            .from('team_members')
-            .update({
-              user_id: result.user.uid,
-              status: 'Active'
-            })
-            .eq('email', result.user.email.toLowerCase())
-            .eq('status', 'Pending')
-        }
-      }
-
+      // Redirect to GitHub OAuth via our API endpoint
+      window.location.href = '/api/auth/github'
       return { success: true }
     } catch (error: unknown) {
       console.error('GitHub OAuth error:', error)
-      const firebaseError = error as { code?: string; message?: string }
-
-      // Handle MFA required error for OAuth
-      if (firebaseError.code === 'auth/multi-factor-auth-required') {
-        const mfaError = error as MultiFactorError
-        const resolver = getMultiFactorResolver(auth, mfaError)
-        const result = await initiateMfaVerification(resolver)
-
-        if (result.success && result.verificationId && result.phoneHint) {
-          setPendingMfa({
-            resolver,
-            verificationId: result.verificationId,
-            phoneHint: result.phoneHint
-          })
-          return {
-            success: true,
-            needsMfa: true,
-            mfaPhoneHint: result.phoneHint
-          }
-        }
-        return { success: false, error: result.error || "Failed to initiate MFA verification." }
-      }
-
-      if (firebaseError.code === 'auth/popup-closed-by-user') {
-        return { success: false, error: "Sign-in cancelled" }
-      }
-      if (firebaseError.code === 'auth/account-exists-with-different-credential') {
-        return { success: false, error: "An account already exists with this email using a different sign-in method" }
-      }
-
-      return { success: false, error: firebaseError.message || "Failed to sign in with GitHub" }
+      return { success: false, error: "Failed to initiate GitHub sign-in" }
     }
   }
 
-  // Handle OAuth callback - Firebase popup handles this, kept for API compatibility
-  const handleOAuthCallback = (_userData: User) => {
-    // Firebase popup handles auth state automatically via onAuthStateChanged
+  // Handle OAuth callback from API-based GitHub auth
+  const handleOAuthCallback = async (userData: User) => {
+    try {
+      // Store user in state (isAuthenticated is derived from !!user)
+      setUser(userData)
+
+      // Create/update profile in Supabase for OAuth users
+      await supabase.from('profiles').upsert({
+        id: userData.id,
+        name: userData.name || '',
+        email: userData.email || '',
+        avatar_url: userData.avatar || null,
+        oauth_provider: userData.provider || 'github',
+        updated_at: new Date().toISOString(),
+      })
+
+      // Link any pending team invitations
+      if (userData.email) {
+        await supabase
+          .from('team_members')
+          .update({
+            user_id: userData.id,
+            status: 'Active'
+          })
+          .eq('email', userData.email.toLowerCase())
+          .eq('status', 'Pending')
+      }
+    } catch (error) {
+      console.error('Error handling OAuth callback:', error)
+    }
   }
 
   // Request password reset - sends OTP via Resend
