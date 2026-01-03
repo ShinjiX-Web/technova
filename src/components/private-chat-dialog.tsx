@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { IconSend, IconArrowLeft, IconUpload, IconFile, IconDownload, IconCornerDownLeft, IconX, IconDotsVertical, IconTrash, IconExternalLink } from "@tabler/icons-react"
+import { IconSend, IconArrowLeft, IconUpload, IconFile, IconDownload, IconCornerDownLeft, IconX, IconDotsVertical, IconTrash, IconExternalLink, IconMicrophone, IconPlayerStop } from "@tabler/icons-react"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
 import { ReactionPicker } from "./reaction-picker"
@@ -53,19 +53,26 @@ interface PrivateChatPanelProps {
   teamOwnerId: string
   onBack: () => void
   currentThemeClass?: string
+  backgroundStyle?: React.CSSProperties
   onPopOut?: () => void
   isPopOut?: boolean
 }
 
-export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClass, onPopOut, isPopOut }: PrivateChatPanelProps) {
+export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClass, backgroundStyle, onPopOut, isPopOut }: PrivateChatPanelProps) {
   const { user } = useAuth()
   const [messages, setMessages] = useState<PrivateMessage[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [replyTo, setReplyTo] = useState<PrivateMessage | null>(null)
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingTime, setRecordingTime] = useState(0)
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Dark mode for Swal
   const isDark = document.documentElement.classList.contains("dark")
@@ -128,6 +135,9 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
 
   // Check if file is an image
   const isImage = (fileType?: string | null) => fileType?.startsWith("image/")
+
+  // Check if file is audio
+  const isAudio = (fileType?: string | null) => fileType?.startsWith("audio/")
 
   // Fetch private messages
   const fetchMessages = async () => {
@@ -291,6 +301,89 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
     })
   }
 
+  // Audio recording functions
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mediaRecorder = new MediaRecorder(stream)
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data)
+        }
+      }
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" })
+        setAudioBlob(blob)
+        stream.getTracks().forEach(track => track.stop())
+      }
+
+      mediaRecorder.start()
+      setIsRecording(true)
+      setRecordingTime(0)
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1)
+      }, 1000)
+    } catch {
+      // Handle error silently or show notification
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop()
+    }
+    setIsRecording(false)
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current)
+      recordingTimerRef.current = null
+    }
+  }
+
+  const cancelRecording = () => {
+    stopRecording()
+    setAudioBlob(null)
+    setRecordingTime(0)
+  }
+
+  const sendAudioMessage = async () => {
+    if (!audioBlob || !user || !member) return
+
+    setIsLoading(true)
+    try {
+      const fileName = `audio-${user.id}-${Date.now()}.webm`
+      const filePath = `private-chat/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from("chat-files")
+        .upload(filePath, audioBlob)
+
+      if (uploadError) throw uploadError
+
+      const { data: urlData } = supabase.storage
+        .from("chat-files")
+        .getPublicUrl(filePath)
+
+      await sendMessage(urlData.publicUrl, fileName, "audio/webm")
+      setAudioBlob(null)
+      setRecordingTime(0)
+    } catch {
+      // Handle error
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const formatRecordingTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs.toString().padStart(2, "0")}`
+  }
+
   return (
     <Card className={`flex flex-col h-full ${isPopOut ? "border-0 shadow-none" : ""}`}>
       {/* Header */}
@@ -340,7 +433,7 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
         <div
           ref={scrollRef}
           className={`flex-1 overflow-y-auto p-4 space-y-4 ${currentThemeClass || ""}`}
-          style={{ maxHeight: "calc(100vh - 320px)" }}
+          style={{ maxHeight: "calc(100vh - 320px)", ...backgroundStyle }}
         >
           {messages.length === 0 ? (
             <div className="flex items-center justify-center h-full text-muted-foreground text-sm py-20">
@@ -377,6 +470,14 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
                                 className="max-w-full max-h-48 rounded cursor-pointer"
                                 onClick={() => window.open(msg.file_url!, "_blank")}
                               />
+                            ) : isAudio(msg.file_type) ? (
+                              <div className="flex items-center gap-2 p-2 rounded bg-background/50">
+                                <IconMicrophone className="h-4 w-4 text-primary" />
+                                <audio controls className="h-8 max-w-[200px]">
+                                  <source src={msg.file_url} type={msg.file_type || "audio/webm"} />
+                                  Your browser does not support audio playback.
+                                </audio>
+                              </div>
                             ) : (
                               <a
                                 href={msg.file_url}
@@ -401,7 +502,10 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 rounded-full bg-background/80 hover:bg-background shadow-sm"
-                          onClick={() => setReplyTo(msg)}
+                          onClick={() => {
+                            setReplyTo(msg)
+                            setTimeout(() => inputRef.current?.focus(), 50)
+                          }}
                         >
                           <IconCornerDownLeft className="h-3 w-3" />
                         </Button>
@@ -422,7 +526,7 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
                           <IconTrash className="h-3 w-3" />
                         </Button>
                       </div>
-                      <MessageReactions messageId={msg.id} tableName="private_message_reactions" />
+                      <MessageReactions messageId={msg.id} tableName="private_message_reactions" messageOwnerId={msg.sender_id} />
                     </div>
                   </div>
                 </div>
@@ -477,12 +581,53 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Type a message..."
-              disabled={isLoading}
+              disabled={isLoading || isRecording}
               className="flex-1"
             />
-            <Button onClick={() => sendMessage()} disabled={isLoading || !newMessage.trim()} size="icon">
-              <IconSend className="h-4 w-4" />
-            </Button>
+
+            {/* Audio recording controls */}
+            {isRecording ? (
+              <>
+                <div className="flex items-center gap-2 px-2 py-1 bg-red-100 dark:bg-red-900/30 rounded-lg">
+                  <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-xs font-medium text-red-600 dark:text-red-400">{formatRecordingTime(recordingTime)}</span>
+                </div>
+                <Button variant="outline" size="icon" onClick={cancelRecording} title="Cancel">
+                  <IconX className="h-4 w-4" />
+                </Button>
+                <Button onClick={stopRecording} variant="destructive" size="icon" title="Stop">
+                  <IconPlayerStop className="h-4 w-4" />
+                </Button>
+              </>
+            ) : audioBlob ? (
+              <>
+                <div className="flex items-center gap-1 px-2 py-1 bg-muted rounded-lg">
+                  <IconMicrophone className="h-3 w-3" />
+                  <span className="text-xs">{formatRecordingTime(recordingTime)}</span>
+                </div>
+                <Button variant="outline" size="icon" onClick={cancelRecording} title="Discard">
+                  <IconX className="h-4 w-4" />
+                </Button>
+                <Button onClick={sendAudioMessage} disabled={isLoading} size="icon" title="Send audio">
+                  <IconSend className="h-4 w-4" />
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={startRecording}
+                  disabled={isLoading}
+                  title="Record audio"
+                >
+                  <IconMicrophone className="h-4 w-4" />
+                </Button>
+                <Button onClick={() => sendMessage()} disabled={isLoading || !newMessage.trim()} size="icon">
+                  <IconSend className="h-4 w-4" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </CardContent>

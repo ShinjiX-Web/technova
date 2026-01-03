@@ -44,6 +44,8 @@ import {
   IconMinus,
   IconMaximize,
   IconMinimize,
+  IconMicrophone,
+  IconPlayerStop,
 } from "@tabler/icons-react"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
@@ -149,9 +151,18 @@ export default function TeamChatPage() {
   const [isSoundSettingsOpen, setIsSoundSettingsOpen] = useState(false)
   const [isBackgroundDialogOpen, setIsBackgroundDialogOpen] = useState(false)
   const [customBackgroundImage, setCustomBackgroundImage] = useState<string | null>(null)
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [showMentions, setShowMentions] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingTime, setRecordingTime] = useState(0)
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Dark mode for Swal
   const isDark = document.documentElement.classList.contains("dark")
@@ -450,6 +461,92 @@ export default function TeamChatPage() {
     }
   }
 
+  // Audio recording functions
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mediaRecorder = new MediaRecorder(stream)
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data)
+        }
+      }
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" })
+        setAudioBlob(blob)
+        stream.getTracks().forEach(track => track.stop())
+      }
+
+      mediaRecorder.start()
+      setIsRecording(true)
+      setRecordingTime(0)
+
+      // Start timer
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1)
+      }, 1000)
+    } catch (error) {
+      console.error("Error accessing microphone:", error)
+      Swal.fire({ icon: "error", title: "Microphone Error", text: "Could not access microphone. Please check permissions.", ...getSwalTheme() })
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop()
+    }
+    setIsRecording(false)
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current)
+      recordingTimerRef.current = null
+    }
+  }
+
+  const cancelRecording = () => {
+    stopRecording()
+    setAudioBlob(null)
+    setRecordingTime(0)
+  }
+
+  const sendAudioMessage = async () => {
+    if (!audioBlob || !user || !ownerId) return
+
+    setIsLoading(true)
+    try {
+      const fileName = `audio-${user.id}-${Date.now()}.webm`
+      const filePath = `team-chat/${ownerId}/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from("chat-files")
+        .upload(filePath, audioBlob)
+
+      if (uploadError) throw uploadError
+
+      const { data: urlData } = supabase.storage
+        .from("chat-files")
+        .getPublicUrl(filePath)
+
+      await sendMessage(urlData.publicUrl, fileName, "audio/webm")
+      setAudioBlob(null)
+      setRecordingTime(0)
+    } catch (error) {
+      console.error("Error uploading audio:", error)
+      Swal.fire({ icon: "error", title: "Upload failed", text: "Could not upload audio message", ...getSwalTheme() })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const formatRecordingTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs.toString().padStart(2, "0")}`
+  }
+
   // Admin: Clear all chat messages
   const clearChat = async () => {
     if (!isTeamOwner || !ownerId) return
@@ -594,13 +691,6 @@ export default function TeamChatPage() {
     Swal.fire({ icon: "success", title: `Status: ${status}`, timer: 1500, showConfirmButton: false, ...getSwalTheme() })
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      sendMessage()
-    }
-  }
-
   const getInitials = (name: string) => name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
 
   const formatTime = (dateString: string) => {
@@ -637,6 +727,9 @@ export default function TeamChatPage() {
 
   // Check if file is an image
   const isImage = (fileType?: string | null) => fileType?.startsWith("image/")
+
+  // Check if file is audio
+  const isAudio = (fileType?: string | null) => fileType?.startsWith("audio/")
 
   // Drag handlers for pop-out window - using refs for document-level events
   const dragOffsetRef = useRef({ x: 0, y: 0 })
@@ -741,6 +834,97 @@ export default function TeamChatPage() {
 
     if (error && error.code !== "23505") { // Ignore duplicate key errors
       console.error("Error adding reaction:", error)
+    }
+  }
+
+  // Build mention suggestions list (team members + @everyone)
+  const getMentionSuggestions = () => {
+    if (!mentionQuery && mentionQuery !== "") return []
+    const query = mentionQuery.toLowerCase()
+    const suggestions: { id: string; name: string; type: "user" | "everyone" }[] = []
+
+    // Add @everyone option
+    if ("everyone".startsWith(query)) {
+      suggestions.push({ id: "everyone", name: "everyone", type: "everyone" })
+    }
+
+    // Add team members (excluding current user)
+    teamMembers
+      .filter(m => m.user_id !== user?.id)
+      .filter(m => {
+        const name = (m.chat_nickname || m.name).toLowerCase()
+        return name.includes(query)
+      })
+      .slice(0, 5)
+      .forEach(m => {
+        suggestions.push({ id: m.user_id || m.id, name: m.chat_nickname || m.name, type: "user" })
+      })
+
+    return suggestions
+  }
+
+  const mentionSuggestions = getMentionSuggestions()
+
+  // Handle input change with mention detection
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setNewMessage(value)
+
+    // Detect @ mentions
+    const cursorPos = e.target.selectionStart || 0
+    const textBeforeCursor = value.slice(0, cursorPos)
+    const atMatch = textBeforeCursor.match(/@([a-zA-Z0-9_]*)$/)
+
+    if (atMatch) {
+      setMentionQuery(atMatch[1])
+      setShowMentions(true)
+      setMentionIndex(0)
+    } else {
+      setShowMentions(false)
+      setMentionQuery(null)
+    }
+  }
+
+  // Insert mention into message
+  const insertMention = (name: string) => {
+    const cursorPos = inputRef.current?.selectionStart || newMessage.length
+    const textBeforeCursor = newMessage.slice(0, cursorPos)
+    const textAfterCursor = newMessage.slice(cursorPos)
+
+    // Find the @ position
+    const atIndex = textBeforeCursor.lastIndexOf("@")
+    if (atIndex === -1) return
+
+    const newText = textBeforeCursor.slice(0, atIndex) + `@${name} ` + textAfterCursor
+    setNewMessage(newText)
+    setShowMentions(false)
+    setMentionQuery(null)
+
+    setTimeout(() => inputRef.current?.focus(), 50)
+  }
+
+  // Handle keyboard navigation in mention dropdown
+  const handleMentionKeyDown = (e: React.KeyboardEvent) => {
+    if (!showMentions || mentionSuggestions.length === 0) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault()
+        sendMessage()
+      }
+      return
+    }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setMentionIndex((prev) => (prev + 1) % mentionSuggestions.length)
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setMentionIndex((prev) => (prev - 1 + mentionSuggestions.length) % mentionSuggestions.length)
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault()
+      insertMention(mentionSuggestions[mentionIndex].name)
+    } else if (e.key === "Escape") {
+      setShowMentions(false)
+      setMentionQuery(null)
     }
   }
 
@@ -906,6 +1090,7 @@ export default function TeamChatPage() {
                   teamOwnerId={ownerId || ""}
                   onBack={() => setPrivateChatMember(null)}
                   currentThemeClass={currentTheme.class}
+                  backgroundStyle={backgroundStyle}
                   onPopOut={() => {
                     setPopOutMember(privateChatMember)
                     setPrivateChatMember(null)
@@ -964,6 +1149,14 @@ export default function TeamChatPage() {
                                         className="max-w-full max-h-48 rounded cursor-pointer"
                                         onClick={() => window.open(msg.file_url!, "_blank")}
                                       />
+                                    ) : isAudio(msg.file_type) ? (
+                                      <div className="flex items-center gap-2 p-2 rounded bg-background/50">
+                                        <IconMicrophone className="h-4 w-4 text-primary" />
+                                        <audio controls className="h-8 max-w-[200px]">
+                                          <source src={msg.file_url} type={msg.file_type || "audio/webm"} />
+                                          Your browser does not support audio playback.
+                                        </audio>
+                                      </div>
                                     ) : (
                                       <a
                                         href={msg.file_url}
@@ -988,7 +1181,10 @@ export default function TeamChatPage() {
                                   variant="ghost"
                                   size="icon"
                                   className="h-6 w-6 rounded-full bg-background/80 hover:bg-background shadow-sm"
-                                  onClick={() => setReplyTo(msg)}
+                                  onClick={() => {
+                                    setReplyTo(msg)
+                                    setTimeout(() => inputRef.current?.focus(), 50)
+                                  }}
                                 >
                                   <IconCornerDownLeft className="h-3 w-3" />
                                 </Button>
@@ -1002,7 +1198,7 @@ export default function TeamChatPage() {
                                 />
                               </div>
                               {/* Message reactions display */}
-                              <MessageReactions messageId={msg.id} />
+                              <MessageReactions messageId={msg.id} messageOwnerId={msg.sender_id} />
                             </div>
                           </div>
                         </div>
@@ -1060,19 +1256,91 @@ export default function TeamChatPage() {
                           setTimeout(() => sendMessage(), 100)
                         }}
                       />
-                      <Input
-                        ref={inputRef}
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder={replyTo ? "Type your reply..." : "Type a message..."}
-                        disabled={isLoading || !ownerId}
-                        className="flex-1"
-                      />
-                      <Button onClick={() => sendMessage()} disabled={isLoading || !newMessage.trim() || !ownerId}>
-                        <IconSend className="h-4 w-4 mr-2" />
-                        Send
-                      </Button>
+                      <div className="relative flex-1">
+                        <Input
+                          ref={inputRef}
+                          value={newMessage}
+                          onChange={handleInputChange}
+                          onKeyDown={handleMentionKeyDown}
+                          placeholder={replyTo ? "Type your reply..." : "Type @ to mention..."}
+                          disabled={isLoading || !ownerId}
+                          className="w-full"
+                        />
+                        {/* Mention suggestions dropdown */}
+                        {showMentions && mentionSuggestions.length > 0 && (
+                          <div className="absolute bottom-full left-0 right-0 mb-1 bg-popover border rounded-lg shadow-lg overflow-hidden z-50">
+                            {mentionSuggestions.map((suggestion, idx) => (
+                              <button
+                                key={suggestion.id}
+                                type="button"
+                                className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-muted ${idx === mentionIndex ? "bg-muted" : ""}`}
+                                onClick={() => insertMention(suggestion.name)}
+                              >
+                                {suggestion.type === "everyone" ? (
+                                  <>
+                                    <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center text-xs">@</div>
+                                    <span className="font-medium">@everyone</span>
+                                    <span className="text-xs text-muted-foreground">Notify all team members</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Avatar className="h-6 w-6">
+                                      <AvatarFallback className="text-xs">{suggestion.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                                    </Avatar>
+                                    <span>@{suggestion.name}</span>
+                                  </>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Audio recording controls */}
+                      {isRecording ? (
+                        <>
+                          <div className="flex items-center gap-2 px-3 py-1 bg-red-100 dark:bg-red-900/30 rounded-lg">
+                            <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                            <span className="text-sm font-medium text-red-600 dark:text-red-400">{formatRecordingTime(recordingTime)}</span>
+                          </div>
+                          <Button variant="outline" size="icon" onClick={cancelRecording} title="Cancel">
+                            <IconX className="h-4 w-4" />
+                          </Button>
+                          <Button onClick={stopRecording} variant="destructive" size="icon" title="Stop recording">
+                            <IconPlayerStop className="h-4 w-4" />
+                          </Button>
+                        </>
+                      ) : audioBlob ? (
+                        <>
+                          <div className="flex items-center gap-2 px-3 py-1 bg-muted rounded-lg">
+                            <IconMicrophone className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm">Audio ready ({formatRecordingTime(recordingTime)})</span>
+                          </div>
+                          <Button variant="outline" size="icon" onClick={cancelRecording} title="Discard">
+                            <IconX className="h-4 w-4" />
+                          </Button>
+                          <Button onClick={sendAudioMessage} disabled={isLoading} title="Send audio">
+                            <IconSend className="h-4 w-4 mr-2" />
+                            Send Audio
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={startRecording}
+                            disabled={isLoading || !ownerId}
+                            title="Record audio message"
+                          >
+                            <IconMicrophone className="h-4 w-4" />
+                          </Button>
+                          <Button onClick={() => sendMessage()} disabled={isLoading || !newMessage.trim() || !ownerId}>
+                            <IconSend className="h-4 w-4 mr-2" />
+                            Send
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1185,6 +1453,7 @@ export default function TeamChatPage() {
                 teamOwnerId={ownerId || ""}
                 onBack={() => setPopOutMember(null)}
                 currentThemeClass={currentTheme.class}
+                backgroundStyle={backgroundStyle}
                 isPopOut
               />
             </div>

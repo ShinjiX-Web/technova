@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   Tooltip,
   TooltipContent,
@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/tooltip"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
+import { playNotificationSound } from "@/lib/notification-sounds"
 
 export interface Reaction {
   id: string
@@ -29,12 +30,14 @@ interface GroupedReaction {
 interface MessageReactionsProps {
   messageId: string
   tableName?: "message_reactions" | "private_message_reactions"
+  messageOwnerId?: string // The user who sent the message - used for notification sounds
 }
 
-export function MessageReactions({ messageId, tableName = "message_reactions" }: MessageReactionsProps) {
+export function MessageReactions({ messageId, tableName = "message_reactions", messageOwnerId }: MessageReactionsProps) {
   const { user } = useAuth()
   const [reactions, setReactions] = useState<Reaction[]>([])
   const [groupedReactions, setGroupedReactions] = useState<GroupedReaction[]>([])
+  const prevReactionCountRef = useRef<number>(0)
 
   // Fetch reactions for this message
   const fetchReactions = async () => {
@@ -45,6 +48,20 @@ export function MessageReactions({ messageId, tableName = "message_reactions" }:
       .order("created_at", { ascending: true })
 
     if (data) {
+      // Play notification sound if this is the current user's message and a new reaction was added
+      if (
+        messageOwnerId === user?.id &&
+        data.length > prevReactionCountRef.current &&
+        prevReactionCountRef.current > 0 // Don't play on initial load
+      ) {
+        // Check if the new reaction is not from the current user
+        const newReactions = data.slice(prevReactionCountRef.current)
+        const hasNewReactionFromOthers = newReactions.some(r => r.user_id !== user?.id)
+        if (hasNewReactionFromOthers) {
+          playNotificationSound()
+        }
+      }
+      prevReactionCountRef.current = data.length
       setReactions(data)
     }
   }

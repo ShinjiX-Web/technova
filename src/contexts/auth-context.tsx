@@ -187,7 +187,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const profile = await getProfile(firebaseUser)
         if (isMounted) {
           setUser(profile)
-          setPendingAuth(null)
+          // Only clear pendingAuth if OTP verification is complete
+          // Don't clear if we're in the middle of signup/login OTP flow
+          setPendingAuth(prev => {
+            // If there's pending auth with OTP code, keep it (user hasn't verified yet)
+            if (prev?.otpCode) return prev
+            return null
+          })
           setIsLoading(false)
         }
       } catch (error) {
