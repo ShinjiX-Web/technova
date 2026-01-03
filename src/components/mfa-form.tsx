@@ -28,13 +28,16 @@ interface MFAFormProps extends React.ComponentProps<typeof Card> {
 export function MFAForm({ onCancel, ...props }: MFAFormProps) {
   const [code, setCode] = useState("")
   const [error, setError] = useState("")
+  const [successMessage, setSuccessMessage] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const { pendingMfa, verifyMfa, cancelMfa } = useAuth()
+  const [isResending, setIsResending] = useState(false)
+  const { pendingMfa, verifyMfa, resendMfa, cancelMfa } = useAuth()
   const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setSuccessMessage("")
     setIsLoading(true)
 
     try {
@@ -51,6 +54,26 @@ export function MFAForm({ onCancel, ...props }: MFAFormProps) {
       setError("An error occurred. Please try again.")
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleResend = async () => {
+    setError("")
+    setSuccessMessage("")
+    setIsResending(true)
+
+    try {
+      const result = await resendMfa()
+      if (result.success) {
+        setSuccessMessage("A new verification code has been sent to your phone.")
+        setCode("")
+      } else {
+        setError(result.error || "Failed to resend code. Please try again.")
+      }
+    } catch {
+      setError("An error occurred. Please try again.")
+    } finally {
+      setIsResending(false)
     }
   }
 
@@ -73,6 +96,11 @@ export function MFAForm({ onCancel, ...props }: MFAFormProps) {
       <CardContent>
         <form onSubmit={handleSubmit}>
           <FieldGroup>
+            {successMessage && (
+              <div className="p-3 text-sm text-green-600 bg-green-50 dark:bg-green-900/20 dark:text-green-400 rounded-lg">
+                {successMessage}
+              </div>
+            )}
             {error && (
               <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg">
                 {error}
@@ -118,6 +146,17 @@ export function MFAForm({ onCancel, ...props }: MFAFormProps) {
               >
                 Cancel
               </Button>
+              <FieldDescription className="text-center text-sm pt-2">
+                Didn&apos;t receive the code?{" "}
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={isResending}
+                  className="cursor-pointer underline underline-offset-4 hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isResending ? "Sending..." : "Resend"}
+                </button>
+              </FieldDescription>
             </FieldGroup>
           </FieldGroup>
         </form>

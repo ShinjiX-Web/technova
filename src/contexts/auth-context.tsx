@@ -62,12 +62,13 @@ interface AuthContextType {
   signup: (name: string, email: string, password: string) => Promise<AuthResult>
   verifyOtp: (code: string) => Promise<boolean>
   verifyMfa: (code: string) => Promise<{ success: boolean; error?: string }>  // Verify MFA SMS code
+  resendMfa: () => Promise<{ success: boolean; error?: string }>  // Resend MFA SMS code
   cancelMfa: () => void  // Cancel MFA flow
   resendOtp: () => Promise<{ devOtp?: string }>
   cancelOtp: () => void
   logout: () => void
-  loginWithGoogle: () => Promise<{ success: boolean; error?: string }>
-  loginWithGitHub: () => Promise<{ success: boolean; error?: string }>
+  loginWithGoogle: () => Promise<{ success: boolean; error?: string; needsMfa?: boolean; mfaPhoneHint?: string }>
+  loginWithGitHub: () => Promise<{ success: boolean; error?: string; needsMfa?: boolean; mfaPhoneHint?: string }>
   handleOAuthCallback: (userData: User) => void
   requestPasswordReset: (email: string) => Promise<AuthResult>
   verifyResetOtp: (code: string) => Promise<boolean>
@@ -162,6 +163,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const authInProgressRef = useRef(false)
   // Ref to store recaptcha verifier for MFA
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null)
+  // Ref to store the MFA resolver for resending codes
+  const mfaResolverRef = useRef<MultiFactorResolver | null>(null)
+
+  // Helper to initialize recaptcha and send MFA SMS
+  const initiateMfaVerification = async (resolver: MultiFactorResolver): Promise<{ success: boolean; verificationId?: string; phoneHint?: string; error?: string }> => {
+    try {
+      // Get the phone hint from the first enrolled factor
+      const phoneHint = resolver.hints[0]?.displayName ||
+        (resolver.hints[0] as { phoneNumber?: string })?.phoneNumber?.slice(-4) || '****'
+
+      // Clear existing recaptcha verifier if it exists
+      if (recaptchaVerifierRef.current) {
+        try {
+          recaptchaVerifierRef.current.clear()
+        } catch {
+          // Ignore clear errors
+        }
+        recaptchaVerifierRef.current = null
+      }
+
+      // Create a container for the recaptcha if it doesn't exist
+      let recaptchaContainer = document.getElementById('recaptcha-container')
+      if (!recaptchaContainer) {
+        recaptchaContainer = document.createElement('div')
+        recaptchaContainer.id = 'recaptcha-container'
+        recaptchaContainer.style.display = 'none'
+        document.body.appendChild(recaptchaContainer)
+      }
+
+      // Create new recaptcha verifier
+      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible'
+      })
+
+      // Get the phone info and send verification code
+      const phoneInfoOptions = {
+        multiFactorHint: resolver.hints[0],
+        session: resolver.session
+      }
+      const phoneAuthProvider = new PhoneAuthProvider(auth)
+      const verificationId = await phoneAuthProvider.verifyPhoneNumber(
+        phoneInfoOptions,
+        recaptchaVerifierRef.current
+      )
+
+      // Store resolver for resending
+      mfaResolverRef.current = resolver
+
+      return { success: true, verificationId, phoneHint }
+    } catch (error) {
+      console.error('MFA initiation error:', error)
+      return { success: false, error: "Failed to send verification code. Please try again." }
+    }
+  }
 
   // Check for existing session on mount and subscribe to Firebase auth changes
   useEffect(() => {
@@ -297,56 +352,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Handle MFA required error
       if (firebaseError.code === 'auth/multi-factor-auth-required') {
-        try {
-          const mfaError = error as MultiFactorError
-          const resolver = getMultiFactorResolver(auth, mfaError)
+        const mfaError = error as MultiFactorError
+        const resolver = getMultiFactorResolver(auth, mfaError)
+        const result = await initiateMfaVerification(resolver)
 
-          // Get the phone hint from the first enrolled factor
-          const phoneHint = resolver.hints[0]?.displayName ||
-            (resolver.hints[0] as { phoneNumber?: string })?.phoneNumber?.slice(-4) || '****'
-
-          // Create invisible recaptcha for phone auth
-          if (!recaptchaVerifierRef.current) {
-            // Create a container for the recaptcha if it doesn't exist
-            let recaptchaContainer = document.getElementById('recaptcha-container')
-            if (!recaptchaContainer) {
-              recaptchaContainer = document.createElement('div')
-              recaptchaContainer.id = 'recaptcha-container'
-              recaptchaContainer.style.display = 'none'
-              document.body.appendChild(recaptchaContainer)
-            }
-            recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
-              size: 'invisible'
-            })
-          }
-
-          // Get the phone info and send verification code
-          const phoneInfoOptions = {
-            multiFactorHint: resolver.hints[0],
-            session: resolver.session
-          }
-          const phoneAuthProvider = new PhoneAuthProvider(auth)
-          const verificationId = await phoneAuthProvider.verifyPhoneNumber(
-            phoneInfoOptions,
-            recaptchaVerifierRef.current
-          )
-
-          // Store MFA state for verification
+        if (result.success && result.verificationId && result.phoneHint) {
           setPendingMfa({
             resolver,
-            verificationId,
-            phoneHint
+            verificationId: result.verificationId,
+            phoneHint: result.phoneHint
           })
-
           return {
             success: true,
             needsMfa: true,
-            mfaPhoneHint: phoneHint
+            mfaPhoneHint: result.phoneHint
           }
-        } catch (mfaSetupError) {
-          console.error('MFA setup error:', mfaSetupError)
-          return { success: false, error: "Failed to initiate MFA verification. Please try again." }
         }
+        return { success: false, error: result.error || "Failed to initiate MFA verification." }
       }
 
       // Check if this might be an OAuth user trying to use password login
@@ -559,11 +581,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Cancel MFA flow
   const cancelMfa = () => {
     setPendingMfa(null)
+    mfaResolverRef.current = null
     // Clean up recaptcha verifier
     if (recaptchaVerifierRef.current) {
-      recaptchaVerifierRef.current.clear()
+      try {
+        recaptchaVerifierRef.current.clear()
+      } catch {
+        // Ignore clear errors
+      }
       recaptchaVerifierRef.current = null
     }
+  }
+
+  // Resend MFA SMS code
+  const resendMfa = async (): Promise<{ success: boolean; error?: string }> => {
+    if (!mfaResolverRef.current) {
+      return { success: false, error: "No MFA session active. Please try logging in again." }
+    }
+
+    const result = await initiateMfaVerification(mfaResolverRef.current)
+
+    if (result.success && result.verificationId && result.phoneHint) {
+      setPendingMfa({
+        resolver: mfaResolverRef.current,
+        verificationId: result.verificationId,
+        phoneHint: result.phoneHint
+      })
+      return { success: true }
+    }
+
+    return { success: false, error: result.error || "Failed to resend verification code." }
   }
 
   const logout = async () => {
@@ -588,7 +635,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   // OAuth login with Google using Firebase popup
-  const loginWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
+  const loginWithGoogle = async (): Promise<{ success: boolean; error?: string; needsMfa?: boolean; mfaPhoneHint?: string }> => {
     try {
       const result = await signInWithPopup(auth, googleProvider)
 
@@ -621,6 +668,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Google OAuth error:', error)
       const firebaseError = error as { code?: string; message?: string }
 
+      // Handle MFA required error for OAuth
+      if (firebaseError.code === 'auth/multi-factor-auth-required') {
+        const mfaError = error as MultiFactorError
+        const resolver = getMultiFactorResolver(auth, mfaError)
+        const result = await initiateMfaVerification(resolver)
+
+        if (result.success && result.verificationId && result.phoneHint) {
+          setPendingMfa({
+            resolver,
+            verificationId: result.verificationId,
+            phoneHint: result.phoneHint
+          })
+          return {
+            success: true,
+            needsMfa: true,
+            mfaPhoneHint: result.phoneHint
+          }
+        }
+        return { success: false, error: result.error || "Failed to initiate MFA verification." }
+      }
+
       if (firebaseError.code === 'auth/popup-closed-by-user') {
         return { success: false, error: "Sign-in cancelled" }
       }
@@ -633,7 +701,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   // OAuth login with GitHub using Firebase popup
-  const loginWithGitHub = async (): Promise<{ success: boolean; error?: string }> => {
+  const loginWithGitHub = async (): Promise<{ success: boolean; error?: string; needsMfa?: boolean; mfaPhoneHint?: string }> => {
     try {
       const result = await signInWithPopup(auth, githubProvider)
 
@@ -665,6 +733,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error: unknown) {
       console.error('GitHub OAuth error:', error)
       const firebaseError = error as { code?: string; message?: string }
+
+      // Handle MFA required error for OAuth
+      if (firebaseError.code === 'auth/multi-factor-auth-required') {
+        const mfaError = error as MultiFactorError
+        const resolver = getMultiFactorResolver(auth, mfaError)
+        const result = await initiateMfaVerification(resolver)
+
+        if (result.success && result.verificationId && result.phoneHint) {
+          setPendingMfa({
+            resolver,
+            verificationId: result.verificationId,
+            phoneHint: result.phoneHint
+          })
+          return {
+            success: true,
+            needsMfa: true,
+            mfaPhoneHint: result.phoneHint
+          }
+        }
+        return { success: false, error: result.error || "Failed to initiate MFA verification." }
+      }
 
       if (firebaseError.code === 'auth/popup-closed-by-user') {
         return { success: false, error: "Sign-in cancelled" }
@@ -813,6 +902,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signup,
         verifyOtp,
         verifyMfa,
+        resendMfa,
         cancelMfa,
         resendOtp,
         cancelOtp,
