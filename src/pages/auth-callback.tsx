@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useSearchParams, useNavigate } from "react-router-dom"
 import { useAuth } from "@/contexts/auth-context"
 
@@ -8,13 +8,18 @@ export default function AuthCallback() {
   const navigate = useNavigate()
   const { handleOAuthCallback, isAuthenticated } = useAuth()
   const [status, setStatus] = useState("Completing authentication...")
+  const processedRef = useRef(false)
 
   useEffect(() => {
+    // Prevent multiple executions
+    if (processedRef.current) return
+
     const handleCallback = async () => {
       // Check for error in URL params
       const error = searchParams.get("error")
 
       if (error) {
+        processedRef.current = true
         console.error("OAuth error:", error)
         navigate(`/login?error=${encodeURIComponent(error)}`, { replace: true })
         return
@@ -25,6 +30,7 @@ export default function AuthCallback() {
       const provider = searchParams.get("provider")
 
       if (userParam && provider === "github") {
+        processedRef.current = true
         try {
           setStatus("Processing GitHub authentication...")
           const userData = JSON.parse(decodeURIComponent(userParam))
@@ -46,11 +52,13 @@ export default function AuthCallback() {
 
       // If already authenticated (e.g., from Firebase), redirect to dashboard
       if (isAuthenticated) {
+        processedRef.current = true
         navigate("/dashboard", { replace: true })
         return
       }
 
       // No user data and not authenticated, redirect to login
+      processedRef.current = true
       navigate("/login", { replace: true })
     }
 

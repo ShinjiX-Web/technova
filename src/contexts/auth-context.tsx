@@ -114,6 +114,32 @@ async function sendOtpEmail(email: string, otp: string, type: "login" | "signup"
   }
 }
 
+// Local storage key for GitHub OAuth users (not using Firebase session)
+const GITHUB_USER_KEY = 'github_oauth_user'
+
+// Helper to persist GitHub OAuth user to localStorage
+function persistGitHubUser(user: User | null) {
+  if (user && user.provider === 'github') {
+    localStorage.setItem(GITHUB_USER_KEY, JSON.stringify(user))
+  } else {
+    localStorage.removeItem(GITHUB_USER_KEY)
+  }
+}
+
+// Helper to get GitHub OAuth user from localStorage
+function getPersistedGitHubUser(): User | null {
+  try {
+    const stored = localStorage.getItem(GITHUB_USER_KEY)
+    if (stored) {
+      return JSON.parse(stored) as User
+    }
+  } catch {
+    // Invalid JSON, clear it
+    localStorage.removeItem(GITHUB_USER_KEY)
+  }
+  return null
+}
+
 // Helper to convert Firebase user to our User type with profile lookup
 async function getProfile(firebaseUser: FirebaseUser): Promise<User> {
   let profile = null
@@ -294,8 +320,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (firebaseUser) {
         await setUserFromFirebase(firebaseUser)
       } else {
+        // No Firebase user - check for persisted GitHub OAuth user
+        const githubUser = getPersistedGitHubUser()
         if (isMounted) {
-          setUser(null)
+          if (githubUser) {
+            setUser(githubUser)
+          } else {
+            setUser(null)
+          }
           setIsLoading(false)
         }
       }
@@ -627,6 +659,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Clear user state immediately
     setUser(null)
     setPendingAuth(null)
+    // Clear persisted GitHub OAuth user
+    persistGitHubUser(null)
   }
 
   // Update user profile in context (for real-time UI updates)
@@ -720,28 +754,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Handle OAuth callback from API-based GitHub auth
   const handleOAuthCallback = async (userData: User) => {
     try {
+      // Ensure provider is set
+      const userWithProvider = { ...userData, provider: userData.provider || 'github' }
+
       // Store user in state (isAuthenticated is derived from !!user)
-      setUser(userData)
+      setUser(userWithProvider)
+
+      // Persist GitHub user to localStorage for session persistence
+      persistGitHubUser(userWithProvider)
 
       // Create/update profile in Supabase for OAuth users
       await supabase.from('profiles').upsert({
-        id: userData.id,
-        name: userData.name || '',
-        email: userData.email || '',
-        avatar_url: userData.avatar || null,
-        oauth_provider: userData.provider || 'github',
+        id: userWithProvider.id,
+        name: userWithProvider.name || '',
+        email: userWithProvider.email || '',
+        avatar_url: userWithProvider.avatar || null,
+        oauth_provider: userWithProvider.provider,
         updated_at: new Date().toISOString(),
       })
 
       // Link any pending team invitations
-      if (userData.email) {
+      if (userWithProvider.email) {
         await supabase
           .from('team_members')
           .update({
-            user_id: userData.id,
+            user_id: userWithProvider.id,
             status: 'Active'
           })
-          .eq('email', userData.email.toLowerCase())
+          .eq('email', userWithProvider.email.toLowerCase())
           .eq('status', 'Pending')
       }
     } catch (error) {
