@@ -15,6 +15,12 @@ import AnalyticsPage from './pages/analytics.tsx'
 import ProjectsPage from './pages/projects.tsx'
 import TeamPage from './pages/team.tsx'
 import TeamChatPage from './pages/team-chat.tsx'
+import DataLibraryPage from './pages/data-library.tsx'
+import ReportsPage from './pages/reports.tsx'
+import WordAssistantPage from './pages/word-assistant.tsx'
+import SettingsPage from './pages/settings.tsx'
+import HelpPage from './pages/help.tsx'
+import SearchPage from './pages/search.tsx'
 import PrivacyPolicy from './pages/privacy.tsx'
 import TermsOfService from './pages/terms.tsx'
 import { ThemeProvider } from './components/ui/theme-provider.tsx'
@@ -170,6 +176,54 @@ createRoot(document.getElementById('root')!).render(
                 element={
                   <ProtectedRoute>
                     <TeamChatPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/data-library"
+                element={
+                  <ProtectedRoute>
+                    <DataLibraryPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/reports"
+                element={
+                  <ProtectedRoute>
+                    <ReportsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/word-assistant"
+                element={
+                  <ProtectedRoute>
+                    <WordAssistantPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <ProtectedRoute>
+                    <SettingsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/help"
+                element={
+                  <ProtectedRoute>
+                    <HelpPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/search"
+                element={
+                  <ProtectedRoute>
+                    <SearchPage />
                   </ProtectedRoute>
                 }
               />

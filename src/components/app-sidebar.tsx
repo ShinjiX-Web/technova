@@ -119,34 +119,34 @@ const data = {
   navSecondary: [
     {
       title: "Settings",
-      url: "#",
+      url: "/settings",
       icon: IconSettings,
     },
     {
       title: "Get Help",
-      url: "#",
+      url: "/help",
       icon: IconHelp,
     },
     {
       title: "Search",
-      url: "#",
+      url: "/search",
       icon: IconSearch,
     },
   ],
   documents: [
     {
       name: "Data Library",
-      url: "#",
+      url: "/data-library",
       icon: IconDatabase,
     },
     {
       name: "Reports",
-      url: "#",
+      url: "/reports",
       icon: IconReport,
     },
     {
       name: "Word Assistant",
-      url: "#",
+      url: "/word-assistant",
       icon: IconFileWord,
     },
   ],

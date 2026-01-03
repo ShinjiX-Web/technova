@@ -237,22 +237,29 @@ export default function TeamChatPage() {
     determineOwnerId()
   }, [user])
 
-  // Fetch chat settings
+  // Fetch chat settings from localStorage
   useEffect(() => {
-    const fetchSettings = async () => {
+    const fetchSettings = () => {
       if (!user) return
 
-      const { data } = await supabase
-        .from("chat_settings")
-        .select("*")
-        .eq("user_id", user.id)
-        .single()
+      try {
+        const chatSettingsKey = `chat_settings_${user.id}`
+        const savedSettings = localStorage.getItem(chatSettingsKey)
 
-      if (data) {
-        setChatSettings(data)
-        setSelectedTheme(data.chat_theme || "default")
-        setNicknameInput(data.nickname || "")
-        setSelectedStatus(data.status || "Available")
+        if (savedSettings) {
+          const data = JSON.parse(savedSettings)
+          setChatSettings({
+            user_id: user.id,
+            nickname: data.nickname || null,
+            chat_theme: data.chat_theme || "default",
+            status: data.status || "Available",
+          })
+          setSelectedTheme(data.chat_theme || "default")
+          setNicknameInput(data.nickname || "")
+          setSelectedStatus(data.status || "Available")
+        }
+      } catch (error) {
+        console.error("Error loading chat settings:", error)
       }
     }
 
@@ -503,68 +510,73 @@ export default function TeamChatPage() {
     }
   }
 
-  // Save nickname
+  // Save nickname - use localStorage since Supabase chat_settings expects UUID format
   const saveNickname = async () => {
     if (!user) return
 
     const newNickname = nicknameInput.trim() || null
 
-    const { error } = await supabase.from("chat_settings").upsert({
-      user_id: user.id,
-      nickname: newNickname,
-      chat_theme: selectedTheme,
-      status: selectedStatus,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id" })
+    try {
+      // Save to localStorage as primary storage
+      const chatSettingsKey = `chat_settings_${user.id}`
+      const existingSettings = localStorage.getItem(chatSettingsKey)
+      const settings = existingSettings ? JSON.parse(existingSettings) : {}
+      settings.nickname = newNickname
+      settings.chat_theme = selectedTheme
+      settings.status = selectedStatus
+      settings.updated_at = new Date().toISOString()
+      localStorage.setItem(chatSettingsKey, JSON.stringify(settings))
 
-    if (error) {
-      console.error("Error saving nickname:", error)
-      Swal.fire({ icon: "error", title: "Failed to save nickname", text: error.message, ...getSwalTheme() })
-    } else {
       setChatSettings(prev => prev
         ? { ...prev, nickname: newNickname }
         : { user_id: user.id, nickname: newNickname, chat_theme: selectedTheme, status: selectedStatus }
       )
       setIsNicknameOpen(false)
       Swal.fire({ icon: "success", title: "Nickname saved", timer: 1500, showConfirmButton: false, ...getSwalTheme() })
+    } catch (error) {
+      console.error("Error saving nickname:", error)
+      Swal.fire({ icon: "error", title: "Failed to save nickname", text: "Could not save settings", ...getSwalTheme() })
     }
   }
 
-  // Save theme
-  const saveTheme = async (themeId: string) => {
+  // Save theme - use localStorage
+  const saveTheme = (themeId: string) => {
     if (!user) return
 
     setSelectedTheme(themeId)
-    const { error } = await supabase.from("chat_settings").upsert({
-      user_id: user.id,
-      chat_theme: themeId,
-      nickname: chatSettings?.nickname || null,
-      status: selectedStatus,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id" })
 
-    if (!error) {
+    try {
+      const chatSettingsKey = `chat_settings_${user.id}`
+      const existingSettings = localStorage.getItem(chatSettingsKey)
+      const settings = existingSettings ? JSON.parse(existingSettings) : {}
+      settings.chat_theme = themeId
+      settings.updated_at = new Date().toISOString()
+      localStorage.setItem(chatSettingsKey, JSON.stringify(settings))
+
       setChatSettings(prev => prev ? { ...prev, chat_theme: themeId } : { user_id: user.id, chat_theme: themeId, nickname: null, status: selectedStatus })
+    } catch (error) {
+      console.error("Error saving theme:", error)
     }
   }
 
-  // Update availability status
+  // Update availability status - use localStorage for persistence
   const updateStatus = async (status: string) => {
     if (!user) return
 
     setSelectedStatus(status)
 
-    // Save status to chat_settings for persistence
-    const { error } = await supabase.from("chat_settings").upsert({
-      user_id: user.id,
-      chat_theme: selectedTheme,
-      nickname: chatSettings?.nickname || null,
-      status: status,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id" })
+    // Save status to localStorage for persistence
+    try {
+      const chatSettingsKey = `chat_settings_${user.id}`
+      const existingSettings = localStorage.getItem(chatSettingsKey)
+      const settings = existingSettings ? JSON.parse(existingSettings) : {}
+      settings.status = status
+      settings.updated_at = new Date().toISOString()
+      localStorage.setItem(chatSettingsKey, JSON.stringify(settings))
 
-    if (!error) {
       setChatSettings(prev => prev ? { ...prev, status } : { user_id: user.id, chat_theme: selectedTheme, nickname: null, status })
+    } catch (error) {
+      console.error("Error saving status:", error)
     }
 
     // Update in team_members if user is a member
