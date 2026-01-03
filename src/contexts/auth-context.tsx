@@ -183,14 +183,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         recaptchaVerifierRef.current = null
       }
 
-      // Create a container for the recaptcha if it doesn't exist
-      let recaptchaContainer = document.getElementById('recaptcha-container')
-      if (!recaptchaContainer) {
-        recaptchaContainer = document.createElement('div')
-        recaptchaContainer.id = 'recaptcha-container'
-        recaptchaContainer.style.display = 'none'
-        document.body.appendChild(recaptchaContainer)
+      // Remove and recreate the recaptcha container to ensure a fresh state
+      const existingContainer = document.getElementById('recaptcha-container')
+      if (existingContainer) {
+        existingContainer.remove()
       }
+      const recaptchaContainer = document.createElement('div')
+      recaptchaContainer.id = 'recaptcha-container'
+      recaptchaContainer.style.display = 'none'
+      document.body.appendChild(recaptchaContainer)
 
       // Create new recaptcha verifier
       recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
@@ -582,7 +583,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const cancelMfa = () => {
     setPendingMfa(null)
     mfaResolverRef.current = null
-    // Clean up recaptcha verifier
+    // Clean up recaptcha verifier and container
     if (recaptchaVerifierRef.current) {
       try {
         recaptchaVerifierRef.current.clear()
@@ -590,6 +591,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Ignore clear errors
       }
       recaptchaVerifierRef.current = null
+    }
+    // Remove the recaptcha container from DOM
+    const container = document.getElementById('recaptcha-container')
+    if (container) {
+      container.remove()
     }
   }
 
