@@ -350,6 +350,29 @@ export default function TeamChatPage() {
     fetchTeamMembers()
   }, [ownerId, user, isTeamOwner])
 
+  // Subscribe to realtime team member changes (nickname, status updates)
+  useEffect(() => {
+    if (!ownerId) return
+
+    const channel = supabase
+      .channel(`team-members-${ownerId}-${Date.now()}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "team_members", filter: `owner_id=eq.${ownerId}` },
+        (payload) => {
+          const updatedMember = payload.new as TeamMember
+          setTeamMembers((prev) =>
+            prev.map((m) => (m.id === updatedMember.id ? { ...m, ...updatedMember } : m))
+          )
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [ownerId])
+
   // Fetch messages
   const fetchMessages = async () => {
     if (!ownerId) return
@@ -710,14 +733,14 @@ export default function TeamChatPage() {
     }
   }
 
-  // Save nickname - use localStorage since Supabase chat_settings expects UUID format
+  // Save nickname - save to both localStorage and team_members table
   const saveNickname = async () => {
     if (!user) return
 
     const newNickname = nicknameInput.trim() || null
 
     try {
-      // Save to localStorage as primary storage
+      // Save to localStorage for local display
       const chatSettingsKey = `chat_settings_${user.id}`
       const existingSettings = localStorage.getItem(chatSettingsKey)
       const settings = existingSettings ? JSON.parse(existingSettings) : {}
@@ -726,6 +749,12 @@ export default function TeamChatPage() {
       settings.status = selectedStatus
       settings.updated_at = new Date().toISOString()
       localStorage.setItem(chatSettingsKey, JSON.stringify(settings))
+
+      // Also save to team_members table so other users can see the nickname
+      await supabase
+        .from("team_members")
+        .update({ chat_nickname: newNickname })
+        .eq("user_id", user.id)
 
       setChatSettings(prev => prev
         ? { ...prev, nickname: newNickname }
@@ -828,11 +857,23 @@ export default function TeamChatPage() {
     return parts.length > 0 ? parts : text
   }
 
-  // Check online status based on last_seen
-  const isOnline = (member: TeamMember) => {
-    if (!member.last_seen) return false
-    const lastSeen = new Date(member.last_seen).getTime()
-    return Date.now() - lastSeen < 2 * 60 * 1000 // 2 minutes
+  // Get status color for a team member
+  const getMemberStatusColor = (member: TeamMember) => {
+    // Check if member has a manually set status
+    const status = member.status
+    if (status) {
+      // Map status values to colors
+      const statusOption = STATUS_OPTIONS.find(s => s.value === status || s.value.toLowerCase() === status.toLowerCase())
+      if (statusOption) return statusOption.color
+      // Handle "Active" status (legacy value)
+      if (status === "Active" || status === "active") return "bg-green-500"
+    }
+    // Fall back to checking online status based on last_seen
+    if (member.last_seen) {
+      const lastSeen = new Date(member.last_seen).getTime()
+      if (Date.now() - lastSeen < 2 * 60 * 1000) return "bg-green-500" // 2 minutes
+    }
+    return "bg-gray-400"
   }
 
   // Get current theme class and background style
@@ -1202,7 +1243,7 @@ export default function TeamChatPage() {
                         <AvatarImage src={member.avatar_url || undefined} />
                         <AvatarFallback className="text-xs">{getInitials(member.name)}</AvatarFallback>
                       </Avatar>
-                      <div className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background ${isOnline(member) ? "bg-green-500" : "bg-gray-400"}`} />
+                      <div className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background ${getMemberStatusColor(member)}`} />
                       {/* Unread badge */}
                       {unreadCount > 0 && (
                         <div className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-xs flex items-center justify-center font-bold">
