@@ -27,6 +27,7 @@ import { ThemeProvider } from './components/ui/theme-provider.tsx'
 import { AuthProvider, useAuth } from './contexts/auth-context.tsx'
 import { WaveBackground } from './components/ui/wave-background.tsx'
 import { usePresence } from './hooks/use-presence.ts'
+import { Analytics } from '@vercel/analytics/react'
 // FloatingLiveChat disabled - using 3rd party ChatBot widget instead
 // import { FloatingLiveChat } from './components/live-chat.tsx'
 
@@ -233,6 +234,9 @@ createRoot(document.getElementById('root')!).render(
                 <Route path="/terms" element={<TermsOfService />} />
             </Routes>
           </div>
+
+          {/* Vercel Analytics */}
+          <Analytics />
         </BrowserRouter>
       </AuthProvider>
     </ThemeProvider>
