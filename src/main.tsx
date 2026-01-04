@@ -28,6 +28,7 @@ import { AuthProvider, useAuth } from './contexts/auth-context.tsx'
 import { WaveBackground } from './components/ui/wave-background.tsx'
 import { usePresence } from './hooks/use-presence.ts'
 import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 // FloatingLiveChat disabled - using 3rd party ChatBot widget instead
 // import { FloatingLiveChat } from './components/live-chat.tsx'
 
@@ -235,8 +236,9 @@ createRoot(document.getElementById('root')!).render(
             </Routes>
           </div>
 
-          {/* Vercel Analytics */}
+          {/* Vercel Analytics & Speed Insights */}
           <Analytics />
+          <SpeedInsights />
         </BrowserRouter>
       </AuthProvider>
     </ThemeProvider>
