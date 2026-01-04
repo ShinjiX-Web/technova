@@ -15,11 +15,8 @@ import {
   IconPlanet,
   IconBan,
   IconCheck,
-  IconDroplet,
   IconRainbow,
   IconMountain,
-  IconGrid3x3,
-  IconDropletFilled,
 } from "@tabler/icons-react"
 import { getStoredBackgroundType, setStoredBackgroundType } from "./interactive-background"
 import type { BackgroundType } from "./interactive-background"
@@ -33,11 +30,8 @@ const BACKGROUND_OPTIONS: { value: BackgroundType; label: string; icon: React.Re
   { value: "waves", label: "Interactive Waves", icon: <IconWaveSine className="h-4 w-4" />, description: "Mouse-reactive waves" },
   { value: "particles", label: "Floating Particles", icon: <IconSparkles className="h-4 w-4" />, description: "Floating 3D particles" },
   { value: "galaxy", label: "Galaxy Spiral", icon: <IconPlanet className="h-4 w-4" />, description: "Colorful galaxy effect" },
-  { value: "blob", label: "Morphing Blob", icon: <IconDroplet className="h-4 w-4" />, description: "Organic 3D morphing sphere" },
   { value: "aurora", label: "Aurora Borealis", icon: <IconRainbow className="h-4 w-4" />, description: "Northern lights effect" },
   { value: "mesh", label: "Mesh Landscape", icon: <IconMountain className="h-4 w-4" />, description: "Animated wireframe terrain" },
-  { value: "neon-grid", label: "Neon Grid", icon: <IconGrid3x3 className="h-4 w-4" />, description: "Synthwave retro style" },
-  { value: "liquid", label: "Liquid Metal", icon: <IconDropletFilled className="h-4 w-4" />, description: "Metallic reflective blob" },
   { value: "none", label: "No Background", icon: <IconBan className="h-4 w-4" />, description: "Disable animation" },
 ]
 
