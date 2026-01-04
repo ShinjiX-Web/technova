@@ -602,6 +602,19 @@ export default function TeamChatPage() {
     }
   }
 
+  // Scroll to a specific message by ID
+  const scrollToMessage = (messageId: string) => {
+    const messageElement = document.getElementById(`message-${messageId}`)
+    if (messageElement) {
+      messageElement.scrollIntoView({ behavior: "smooth", block: "center" })
+      // Add highlight animation
+      messageElement.classList.add("ring-2", "ring-amber-400", "ring-offset-2")
+      setTimeout(() => {
+        messageElement.classList.remove("ring-2", "ring-amber-400", "ring-offset-2")
+      }, 2000)
+    }
+  }
+
   // Pin/unpin a message
   const togglePinMessage = async (msg: ChatMessage) => {
     if (!user || !ownerId) return
@@ -1263,8 +1276,17 @@ export default function TeamChatPage() {
                         {messages.filter(m => m.is_pinned && !m.is_deleted).length} pinned message{messages.filter(m => m.is_pinned && !m.is_deleted).length > 1 ? "s" : ""}
                       </span>
                     </div>
-                    <div className="mt-1 text-xs text-amber-600/80 dark:text-amber-400/80 truncate">
-                      {messages.find(m => m.is_pinned && !m.is_deleted)?.message}
+                    {/* Clickable list of pinned messages */}
+                    <div className="mt-2 space-y-1 max-h-24 overflow-y-auto">
+                      {messages.filter(m => m.is_pinned && !m.is_deleted).map((pinnedMsg) => (
+                        <div
+                          key={pinnedMsg.id}
+                          onClick={() => scrollToMessage(pinnedMsg.id)}
+                          className="text-xs text-amber-600/80 dark:text-amber-400/80 truncate cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-800/30 px-2 py-1 rounded transition-colors"
+                        >
+                          <span className="font-medium">{pinnedMsg.sender_name}:</span> {pinnedMsg.message}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -1308,7 +1330,7 @@ export default function TeamChatPage() {
                       }
 
                       return (
-                        <div key={msg.id} className={`flex gap-3 group ${isOwn ? "flex-row-reverse" : ""} ${msg.is_pinned ? "relative" : ""}`}>
+                        <div key={msg.id} id={`message-${msg.id}`} className={`flex gap-3 group ${isOwn ? "flex-row-reverse" : ""} ${msg.is_pinned ? "relative" : ""} transition-all duration-300 rounded-lg`}>
                           {/* Pinned indicator */}
                           {msg.is_pinned && (
                             <div className="absolute -top-2 left-10 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded-full">
