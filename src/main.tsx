@@ -27,6 +27,8 @@ import { ThemeProvider } from './components/ui/theme-provider.tsx'
 import { AuthProvider, useAuth } from './contexts/auth-context.tsx'
 import { WaveBackground } from './components/ui/wave-background.tsx'
 import { usePresence } from './hooks/use-presence.ts'
+// FloatingLiveChat disabled - using 3rd party ChatBot widget instead
+// import { FloatingLiveChat } from './components/live-chat.tsx'
 
 // Protected route component with presence tracking
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -79,9 +81,9 @@ createRoot(document.getElementById('root')!).render(
           {/* Fixed wave background across entire site */}
           <WaveBackground className="fixed z-0" />
 
-          <div className="relative z-10">
-            <Routes>
-              <Route path="/" element={<LandingPage />} />
+            <div className="relative z-10">
+              <Routes>
+                <Route path="/" element={<LandingPage />} />
               <Route
                 path="/login"
                 element={
@@ -227,8 +229,8 @@ createRoot(document.getElementById('root')!).render(
                   </ProtectedRoute>
                 }
               />
-              <Route path="/privacy" element={<PrivacyPolicy />} />
-              <Route path="/terms" element={<TermsOfService />} />
+                <Route path="/privacy" element={<PrivacyPolicy />} />
+                <Route path="/terms" element={<TermsOfService />} />
             </Routes>
           </div>
         </BrowserRouter>

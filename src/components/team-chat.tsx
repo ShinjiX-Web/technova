@@ -65,11 +65,6 @@ export function TeamChat({ teamMembers, ownerId }: TeamChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Debug log
-  // useEffect(() => {
-  //   console.log("TeamChat - ownerId:", ownerId, "user:", user?.id)
-  // }, [ownerId, user])
-
   // Fetch messages
   const fetchMessages = async () => {
     if (!ownerId) {

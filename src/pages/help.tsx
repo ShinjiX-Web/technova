@@ -21,8 +21,24 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion"
 
+// Declare OpenWidget global type for TypeScript
+declare global {
+  interface Window {
+    OpenWidget?: {
+      call: (method: string) => void
+    }
+  }
+}
+
 export default function HelpPage() {
   const [searchQuery, setSearchQuery] = useState("")
+
+  // Open the 3rd party ChatBot widget
+  const openChat = () => {
+    if (window.OpenWidget) {
+      window.OpenWidget.call("maximize")
+    }
+  }
 
   const faqs = [
     { q: "How do I reset my password?", a: "Go to Settings > Security > Change Password, or use the 'Forgot Password' link on the login page." },
@@ -117,11 +133,11 @@ export default function HelpPage() {
                   <p className="text-muted-foreground">Our support team is here to assist you</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline">
+                  <Button variant="outline" onClick={openChat}>
                     <IconMessageCircle className="h-4 w-4 mr-2" />
                     Live Chat
                   </Button>
-                  <Button>
+                  <Button onClick={() => window.location.href = "mailto:support@technova.com"}>
                     <IconMail className="h-4 w-4 mr-2" />
                     Email Support
                   </Button>
