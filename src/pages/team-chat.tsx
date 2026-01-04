@@ -257,17 +257,27 @@ export default function TeamChatPage() {
         const chatSettingsKey = `chat_settings_${user.id}`
         const savedSettings = localStorage.getItem(chatSettingsKey)
 
+        // Check if there's a custom background image - if so, theme should be "custom"
+        const savedBg = localStorage.getItem("chat_background_image")
+        const hasCustomBg = !!savedBg
+
         if (savedSettings) {
           const data = JSON.parse(savedSettings)
+          // If there's a custom background, use "custom" theme, otherwise use saved theme
+          const effectiveTheme = hasCustomBg ? "custom" : (data.chat_theme || "default")
+
           setChatSettings({
             user_id: user.id,
             nickname: data.nickname || null,
-            chat_theme: data.chat_theme || "default",
+            chat_theme: effectiveTheme,
             status: data.status || "Available",
           })
-          setSelectedTheme(data.chat_theme || "default")
+          setSelectedTheme(effectiveTheme)
           setNicknameInput(data.nickname || "")
           setSelectedStatus(data.status || "Available")
+        } else if (hasCustomBg) {
+          // No settings saved but there's a custom background - keep custom theme
+          setSelectedTheme("custom")
         }
       } catch (error) {
         console.error("Error loading chat settings:", error)
@@ -715,10 +725,36 @@ export default function TeamChatPage() {
       localStorage.setItem("chat_background_image", imageUrl)
       setCustomBackgroundImage(imageUrl)
       setSelectedTheme("custom")
+      // Also persist theme to user settings
+      if (user) {
+        try {
+          const chatSettingsKey = `chat_settings_${user.id}`
+          const existingSettings = localStorage.getItem(chatSettingsKey)
+          const settings = existingSettings ? JSON.parse(existingSettings) : {}
+          settings.chat_theme = "custom"
+          settings.updated_at = new Date().toISOString()
+          localStorage.setItem(chatSettingsKey, JSON.stringify(settings))
+        } catch (e) {
+          console.error("Error saving theme:", e)
+        }
+      }
     } else {
       localStorage.removeItem("chat_background_image")
       setCustomBackgroundImage(null)
       setSelectedTheme("default")
+      // Persist theme change to user settings
+      if (user) {
+        try {
+          const chatSettingsKey = `chat_settings_${user.id}`
+          const existingSettings = localStorage.getItem(chatSettingsKey)
+          const settings = existingSettings ? JSON.parse(existingSettings) : {}
+          settings.chat_theme = "default"
+          settings.updated_at = new Date().toISOString()
+          localStorage.setItem(chatSettingsKey, JSON.stringify(settings))
+        } catch (e) {
+          console.error("Error saving theme:", e)
+        }
+      }
     }
     setIsBackgroundDialogOpen(false)
   }
