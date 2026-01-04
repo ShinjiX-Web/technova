@@ -46,6 +46,8 @@ import {
   IconMinimize,
   IconMicrophone,
   IconPlayerStop,
+  IconPin,
+  IconPinnedOff,
 } from "@tabler/icons-react"
 import { useAuth } from "@/contexts/auth-context"
 import { supabase } from "@/lib/supabase"
@@ -116,6 +118,11 @@ interface ChatMessage {
   reply_to_id?: string | null
   reply_to_message?: string | null
   reply_to_sender?: string | null
+  is_pinned?: boolean
+  pinned_at?: string | null
+  pinned_by?: string | null
+  is_deleted?: boolean
+  deleted_at?: string | null
 }
 
 interface ChatSettings {
@@ -595,6 +602,65 @@ export default function TeamChatPage() {
     }
   }
 
+  // Pin/unpin a message
+  const togglePinMessage = async (msg: ChatMessage) => {
+    if (!user || !ownerId) return
+
+    const newPinnedStatus = !msg.is_pinned
+    const { error } = await supabase
+      .from("team_messages")
+      .update({
+        is_pinned: newPinnedStatus,
+        pinned_at: newPinnedStatus ? new Date().toISOString() : null,
+        pinned_by: newPinnedStatus ? user.id : null,
+      })
+      .eq("id", msg.id)
+
+    if (!error) {
+      setMessages(prev => prev.map(m =>
+        m.id === msg.id ? { ...m, is_pinned: newPinnedStatus, pinned_at: newPinnedStatus ? new Date().toISOString() : null, pinned_by: newPinnedStatus ? user.id : null } : m
+      ))
+      Swal.fire({ icon: "success", title: newPinnedStatus ? "Message pinned" : "Message unpinned", timer: 1500, showConfirmButton: false, ...getSwalTheme() })
+    }
+  }
+
+  // Soft delete a message (shows "message has been deleted" trace)
+  const deleteMessage = async (msg: ChatMessage) => {
+    if (!user) return
+
+    // Only allow deletion by message sender or team owner
+    if (msg.sender_id !== user.id && !isTeamOwner) {
+      Swal.fire({ icon: "error", title: "Cannot delete", text: "You can only delete your own messages", ...getSwalTheme() })
+      return
+    }
+
+    const result = await Swal.fire({
+      title: "Delete message?",
+      text: "This message will be marked as deleted for everyone.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#ef4444",
+      confirmButtonText: "Delete",
+      ...getSwalTheme(),
+    })
+
+    if (result.isConfirmed) {
+      const { error } = await supabase
+        .from("team_messages")
+        .update({
+          is_deleted: true,
+          deleted_at: new Date().toISOString(),
+        })
+        .eq("id", msg.id)
+
+      if (!error) {
+        setMessages(prev => prev.map(m =>
+          m.id === msg.id ? { ...m, is_deleted: true, deleted_at: new Date().toISOString() } : m
+        ))
+      }
+    }
+  }
+
   // Admin: Toggle user block status
   const toggleBlockUser = async (member: TeamMember) => {
     if (!isTeamOwner) return
@@ -717,6 +783,33 @@ export default function TeamChatPage() {
   const formatTime = (dateString: string) => {
     const date = new Date(dateString)
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  }
+
+  // Render message text with styled @mentions (green and bold)
+  const renderMessageWithMentions = (text: string) => {
+    const mentionRegex = /@(\w+)/g
+    const parts: (string | React.ReactNode)[] = []
+    let lastIndex = 0
+    let match
+
+    while ((match = mentionRegex.exec(text)) !== null) {
+      // Add text before the mention
+      if (match.index > lastIndex) {
+        parts.push(text.slice(lastIndex, match.index))
+      }
+      // Add the styled mention
+      parts.push(
+        <span key={match.index} className="font-bold text-green-500">
+          {match[0]}
+        </span>
+      )
+      lastIndex = match.index + match[0].length
+    }
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(text.slice(lastIndex))
+    }
+    return parts.length > 0 ? parts : text
   }
 
   // Check online status based on last_seen
@@ -1158,6 +1251,20 @@ export default function TeamChatPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex-1 flex flex-col p-0 min-h-0">
+                {/* Pinned messages banner */}
+                {messages.filter(m => m.is_pinned && !m.is_deleted).length > 0 && (
+                  <div className="border-b bg-amber-50 dark:bg-amber-900/20 px-4 py-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <IconPin className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                      <span className="font-medium text-amber-700 dark:text-amber-300">
+                        {messages.filter(m => m.is_pinned && !m.is_deleted).length} pinned message{messages.filter(m => m.is_pinned && !m.is_deleted).length > 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-amber-600/80 dark:text-amber-400/80 truncate">
+                      {messages.find(m => m.is_pinned && !m.is_deleted)?.message}
+                    </div>
+                  </div>
+                )}
                 {/* Messages Area with fixed height and scroll */}
                 <div
                   ref={scrollRef}
@@ -1171,20 +1278,52 @@ export default function TeamChatPage() {
                   ) : (
                     messages.map((msg) => {
                       const isOwn = msg.sender_id === user?.id
-                      const displayName = getDisplayName(msg.sender_id, msg.sender_name)
+                      const msgDisplayName = getDisplayName(msg.sender_id, msg.sender_name)
+                      const canDelete = isOwn || isTeamOwner
+
+                      // Show deleted message placeholder
+                      if (msg.is_deleted) {
+                        return (
+                          <div key={msg.id} className={`flex gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
+                            <Avatar className="h-8 w-8 flex-shrink-0 opacity-50">
+                              <AvatarImage src={msg.sender_avatar || undefined} />
+                              <AvatarFallback className="text-xs">{getInitials(msg.sender_name)}</AvatarFallback>
+                            </Avatar>
+                            <div className={`max-w-[70%] ${isOwn ? "items-end" : "items-start"}`}>
+                              <div className={`flex items-center gap-2 mb-1 ${isOwn ? "justify-end" : ""}`}>
+                                <span className="text-xs text-muted-foreground">{formatTime(msg.created_at)}</span>
+                              </div>
+                              <div className="rounded-lg px-3 py-2 bg-muted/50 border border-dashed border-muted-foreground/30">
+                                <p className="text-sm italic text-muted-foreground flex items-center gap-1">
+                                  <IconTrash className="h-3 w-3" />
+                                  This message has been deleted
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+
                       return (
-                        <div key={msg.id} className={`flex gap-3 group ${isOwn ? "flex-row-reverse" : ""}`}>
+                        <div key={msg.id} className={`flex gap-3 group ${isOwn ? "flex-row-reverse" : ""} ${msg.is_pinned ? "relative" : ""}`}>
+                          {/* Pinned indicator */}
+                          {msg.is_pinned && (
+                            <div className="absolute -top-2 left-10 flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded-full">
+                              <IconPin className="h-3 w-3" />
+                              Pinned
+                            </div>
+                          )}
                           <Avatar className="h-8 w-8 flex-shrink-0">
                             <AvatarImage src={msg.sender_avatar || undefined} />
                             <AvatarFallback className="text-xs">{getInitials(msg.sender_name)}</AvatarFallback>
                           </Avatar>
                           <div className={`max-w-[70%] ${isOwn ? "items-end" : "items-start"}`}>
                             <div className={`flex items-center gap-2 mb-1 ${isOwn ? "justify-end" : ""}`}>
-                              <span className="text-xs font-medium">{isOwn ? "You" : displayName}</span>
+                              <span className="text-xs font-medium">{isOwn ? "You" : msgDisplayName}</span>
                               <span className="text-xs text-muted-foreground">{formatTime(msg.created_at)}</span>
                             </div>
                             <div className="relative">
-                              <div className={`rounded-lg px-3 py-2 ${isOwn ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                              <div className={`rounded-lg px-3 py-2 ${msg.is_pinned ? "ring-2 ring-amber-400/50 " : ""}${isOwn ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                                 {/* Reply quote if this is a reply */}
                                 {msg.reply_to_message && (
                                   <div className={`mb-2 p-2 rounded text-xs border-l-2 ${isOwn ? "bg-primary-foreground/10 border-primary-foreground/50" : "bg-background/50 border-muted-foreground/50"}`}>
@@ -1224,7 +1363,7 @@ export default function TeamChatPage() {
                                   </div>
                                 )}
                                 {msg.message && !msg.message.startsWith("Shared a file:") && (
-                                  <p className="text-sm whitespace-pre-wrap break-words">{msg.message}</p>
+                                  <p className="text-sm whitespace-pre-wrap break-words">{renderMessageWithMentions(msg.message)}</p>
                                 )}
                               </div>
                               {/* Action buttons - shows on hover */}
@@ -1237,17 +1376,38 @@ export default function TeamChatPage() {
                                     setReplyTo(msg)
                                     setTimeout(() => inputRef.current?.focus(), 50)
                                   }}
+                                  title="Reply"
                                 >
                                   <IconCornerDownLeft className="h-3 w-3" />
                                 </Button>
                                 <ReactionPicker
                                   onReact={(type, value) => addReactionToMessage(msg.id, type, value)}
                                   trigger={
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full bg-background/80 hover:bg-background shadow-sm">
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full bg-background/80 hover:bg-background shadow-sm" title="React">
                                       <IconMoodSmile className="h-3 w-3" />
                                     </Button>
                                   }
                                 />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className={`h-6 w-6 rounded-full bg-background/80 hover:bg-amber-100 shadow-sm ${msg.is_pinned ? "text-amber-600" : ""}`}
+                                  onClick={() => togglePinMessage(msg)}
+                                  title={msg.is_pinned ? "Unpin" : "Pin"}
+                                >
+                                  {msg.is_pinned ? <IconPinnedOff className="h-3 w-3" /> : <IconPin className="h-3 w-3" />}
+                                </Button>
+                                {canDelete && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 rounded-full bg-background/80 hover:bg-red-100 hover:text-red-500 shadow-sm"
+                                    onClick={() => deleteMessage(msg)}
+                                    title="Delete"
+                                  >
+                                    <IconTrash className="h-3 w-3" />
+                                  </Button>
+                                )}
                               </div>
                               {/* Message reactions display */}
                               <MessageReactions messageId={msg.id} messageOwnerId={msg.sender_id} />
