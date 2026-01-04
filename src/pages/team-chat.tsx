@@ -616,7 +616,10 @@ export default function TeamChatPage() {
       })
       .eq("id", msg.id)
 
-    if (!error) {
+    if (error) {
+      console.error("Pin message error:", error)
+      Swal.fire({ icon: "error", title: "Failed to pin message", text: error.message, ...getSwalTheme() })
+    } else {
       setMessages(prev => prev.map(m =>
         m.id === msg.id ? { ...m, is_pinned: newPinnedStatus, pinned_at: newPinnedStatus ? new Date().toISOString() : null, pinned_by: newPinnedStatus ? user.id : null } : m
       ))
@@ -628,8 +631,8 @@ export default function TeamChatPage() {
   const deleteMessage = async (msg: ChatMessage) => {
     if (!user) return
 
-    // Only allow deletion by message sender or team owner
-    if (msg.sender_id !== user.id && !isTeamOwner) {
+    // Only allow deletion by message sender
+    if (msg.sender_id !== user.id) {
       Swal.fire({ icon: "error", title: "Cannot delete", text: "You can only delete your own messages", ...getSwalTheme() })
       return
     }
@@ -1279,7 +1282,7 @@ export default function TeamChatPage() {
                     messages.map((msg) => {
                       const isOwn = msg.sender_id === user?.id
                       const msgDisplayName = getDisplayName(msg.sender_id, msg.sender_name)
-                      const canDelete = isOwn || isTeamOwner
+                      const canDelete = isOwn || isTeamOwner // admin only can delete any message
 
                       // Show deleted message placeholder
                       if (msg.is_deleted) {
