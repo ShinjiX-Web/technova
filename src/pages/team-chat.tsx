@@ -59,17 +59,22 @@ import { MediaPicker } from "@/components/media-picker"
 import { NotificationSoundSettings } from "@/components/notification-sound-settings"
 import { playNotificationSound } from "@/lib/notification-sounds"
 import { useTypingIndicator, TypingDots } from "@/components/typing-indicator"
+import { InteractiveBackground } from "@/components/ui/interactive-background"
+import type { BackgroundType } from "@/components/ui/interactive-background"
 
 // Chat background themes with better light mode support
 const CHAT_THEMES = [
-  { id: "default", name: "Default", class: "", style: {} },
-  { id: "gradient-blue", name: "Blue Gradient", class: "bg-gradient-to-br from-blue-500/20 to-purple-500/20 dark:from-blue-500/10 dark:to-purple-500/10", style: {} },
-  { id: "gradient-green", name: "Green Gradient", class: "bg-gradient-to-br from-green-500/20 to-teal-500/20 dark:from-green-500/10 dark:to-teal-500/10", style: {} },
-  { id: "gradient-orange", name: "Sunset", class: "bg-gradient-to-br from-orange-500/20 to-pink-500/20 dark:from-orange-500/10 dark:to-pink-500/10", style: {} },
-  { id: "gradient-purple", name: "Purple Haze", class: "bg-gradient-to-br from-purple-500/20 to-indigo-500/20 dark:from-purple-500/10 dark:to-indigo-500/10", style: {} },
-  { id: "pattern-dots", name: "Dots Pattern", class: "bg-[radial-gradient(circle,_rgba(0,0,0,0.08)_1px,_transparent_1px)] dark:bg-[radial-gradient(circle,_rgba(255,255,255,0.1)_1px,_transparent_1px)] bg-[size:20px_20px]", style: {} },
-  { id: "pattern-grid", name: "Grid Pattern", class: "bg-[linear-gradient(rgba(0,0,0,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.05)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:20px_20px]", style: {} },
-  { id: "custom", name: "Custom Image", class: "", style: {} },
+  { id: "default", name: "Default", class: "", style: {}, threeJs: null },
+  { id: "gradient-blue", name: "Blue Gradient", class: "bg-gradient-to-br from-blue-500/20 to-purple-500/20 dark:from-blue-500/10 dark:to-purple-500/10", style: {}, threeJs: null },
+  { id: "gradient-green", name: "Green Gradient", class: "bg-gradient-to-br from-green-500/20 to-teal-500/20 dark:from-green-500/10 dark:to-teal-500/10", style: {}, threeJs: null },
+  { id: "gradient-orange", name: "Sunset", class: "bg-gradient-to-br from-orange-500/20 to-pink-500/20 dark:from-orange-500/10 dark:to-pink-500/10", style: {}, threeJs: null },
+  { id: "gradient-purple", name: "Purple Haze", class: "bg-gradient-to-br from-purple-500/20 to-indigo-500/20 dark:from-purple-500/10 dark:to-indigo-500/10", style: {}, threeJs: null },
+  { id: "pattern-dots", name: "Dots Pattern", class: "bg-[radial-gradient(circle,_rgba(0,0,0,0.08)_1px,_transparent_1px)] dark:bg-[radial-gradient(circle,_rgba(255,255,255,0.1)_1px,_transparent_1px)] bg-[size:20px_20px]", style: {}, threeJs: null },
+  { id: "pattern-grid", name: "Grid Pattern", class: "bg-[linear-gradient(rgba(0,0,0,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.05)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:20px_20px]", style: {}, threeJs: null },
+  { id: "three-waves", name: "🌊 Wave Animation", class: "", style: {}, threeJs: "waves" as const },
+  { id: "three-particles", name: "✨ Floating Particles", class: "", style: {}, threeJs: "particles" as const },
+  { id: "three-galaxy", name: "🌌 Galaxy Spiral", class: "", style: {}, threeJs: "galaxy" as const },
+  { id: "custom", name: "Custom Image", class: "", style: {}, threeJs: null },
 ]
 
 // Background image presets
@@ -1334,9 +1339,16 @@ export default function TeamChatPage() {
                 {/* Messages Area with fixed height and scroll */}
                 <div
                   ref={scrollRef}
-                  className={`flex-1 overflow-y-auto p-4 space-y-4 min-h-0 ${currentTheme.class}`}
+                  className={`flex-1 overflow-y-auto p-4 space-y-4 min-h-0 relative ${currentTheme.class}`}
                   style={{ maxHeight: "calc(100vh - 320px)", ...backgroundStyle }}
                 >
+                  {/* Three.js animated background */}
+                  {currentTheme.threeJs && (
+                    <InteractiveBackground
+                      type={currentTheme.threeJs as BackgroundType}
+                      className="absolute inset-0 -z-10 rounded-lg"
+                    />
+                  )}
                   {messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full text-muted-foreground">
                       No messages yet. Start the conversation!

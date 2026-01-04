@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { ModeToggle } from "@/components/ui/mode-toggle"
+import { BackgroundSelector } from "@/components/ui/background-selector"
 import {
   IconCode,
   IconDeviceMobile,
@@ -34,7 +35,10 @@ export default function LandingPage() {
   }, [])
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen relative">
+      {/* Background Selector Button - background is rendered globally in main.tsx */}
+      <BackgroundSelector />
+
       {/* Header */}
       <header className="sticky top-0 z-50 w-full border-b border-gray-200/50 dark:border-neutral-800/50 bg-white/60 dark:bg-neutral-950/60 backdrop-blur-md">
         <div className="container mx-auto px-4 lg:px-8">

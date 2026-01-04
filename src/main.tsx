@@ -25,7 +25,8 @@ import PrivacyPolicy from './pages/privacy.tsx'
 import TermsOfService from './pages/terms.tsx'
 import { ThemeProvider } from './components/ui/theme-provider.tsx'
 import { AuthProvider, useAuth } from './contexts/auth-context.tsx'
-import { WaveBackground } from './components/ui/wave-background.tsx'
+import { InteractiveBackground, getStoredBackgroundType } from './components/ui/interactive-background.tsx'
+import { useState, useEffect } from 'react'
 import { usePresence } from './hooks/use-presence.ts'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
@@ -75,13 +76,98 @@ function AuthRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// Global background component that respects user preference
+function GlobalBackground() {
+  const [bgType, setBgType] = useState(getStoredBackgroundType)
+
+  useEffect(() => {
+    // Listen for storage changes (when user changes background preference)
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "site_background_type") {
+        setBgType(getStoredBackgroundType())
+      }
+    }
+    window.addEventListener("storage", handleStorage)
+
+    // Also poll for changes (for same-tab updates)
+    const interval = setInterval(() => {
+      const current = getStoredBackgroundType()
+      if (current !== bgType) setBgType(current)
+    }, 500)
+
+    return () => {
+      window.removeEventListener("storage", handleStorage)
+      clearInterval(interval)
+    }
+  }, [bgType])
+
+  return <InteractiveBackground type={bgType} className="fixed z-0" />
+}
+
+// Content protection component - disables text selection and copy for non-authenticated users
+function ContentProtection({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuth()
+
+  useEffect(() => {
+    if (isAuthenticated) return // No restrictions for logged-in users
+
+    // Prevent copy
+    const handleCopy = (e: ClipboardEvent) => {
+      e.preventDefault()
+      return false
+    }
+
+    // Prevent cut
+    const handleCut = (e: ClipboardEvent) => {
+      e.preventDefault()
+      return false
+    }
+
+    // Prevent context menu (right-click)
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault()
+      return false
+    }
+
+    // Prevent select all keyboard shortcut
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'c' || e.key === 'x')) {
+        e.preventDefault()
+        return false
+      }
+    }
+
+    document.addEventListener('copy', handleCopy)
+    document.addEventListener('cut', handleCut)
+    document.addEventListener('contextmenu', handleContextMenu)
+    document.addEventListener('keydown', handleKeyDown)
+
+    // Add CSS to disable text selection
+    document.body.style.userSelect = 'none'
+    document.body.style.webkitUserSelect = 'none'
+
+    return () => {
+      document.removeEventListener('copy', handleCopy)
+      document.removeEventListener('cut', handleCut)
+      document.removeEventListener('contextmenu', handleContextMenu)
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.userSelect = ''
+      document.body.style.webkitUserSelect = ''
+    }
+  }, [isAuthenticated])
+
+  return <>{children}</>
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
       <AuthProvider>
         <BrowserRouter>
-          {/* Fixed wave background across entire site */}
-          <WaveBackground className="fixed z-0" />
+          {/* Content protection for non-authenticated users */}
+          <ContentProtection>
+            {/* Dynamic background that respects user preference */}
+            <GlobalBackground />
 
             <div className="relative z-10">
               <Routes>
@@ -239,6 +325,7 @@ createRoot(document.getElementById('root')!).render(
           {/* Vercel Analytics & Speed Insights */}
           <Analytics />
           <SpeedInsights />
+          </ContentProtection>
         </BrowserRouter>
       </AuthProvider>
     </ThemeProvider>
