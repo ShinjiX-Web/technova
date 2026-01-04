@@ -30,8 +30,7 @@ import { useState, useEffect } from 'react'
 import { usePresence } from './hooks/use-presence.ts'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
-// FloatingLiveChat disabled - using 3rd party ChatBot widget instead
-// import { FloatingLiveChat } from './components/live-chat.tsx'
+import { FloatingLiveChat } from './components/live-chat.tsx'
 
 // Protected route component with presence tracking
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -321,6 +320,9 @@ createRoot(document.getElementById('root')!).render(
                 <Route path="/terms" element={<TermsOfService />} />
             </Routes>
           </div>
+
+          {/* Floating Live Chat */}
+          <FloatingLiveChat />
 
           {/* Vercel Analytics & Speed Insights */}
           <Analytics />

@@ -20,25 +20,11 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-
-// Declare OpenWidget global type for TypeScript
-declare global {
-  interface Window {
-    OpenWidget?: {
-      call: (method: string) => void
-    }
-  }
-}
+import { useLiveChat } from "@/components/live-chat"
 
 export default function HelpPage() {
   const [searchQuery, setSearchQuery] = useState("")
-
-  // Open the 3rd party ChatBot widget
-  const openChat = () => {
-    if (window.OpenWidget) {
-      window.OpenWidget.call("maximize")
-    }
-  }
+  const { openChat } = useLiveChat()
 
   const faqs = [
     { q: "How do I reset my password?", a: "Go to Settings > Security > Change Password, or use the 'Forgot Password' link on the login page." },

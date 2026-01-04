@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, createContext, useContext } from "react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { IconSend, IconRobot, IconUser, IconMessageCircle, IconX } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
@@ -24,7 +23,7 @@ const LiveChatContext = createContext<LiveChatContextType | null>(null)
 export function useLiveChat() {
   const context = useContext(LiveChatContext)
   if (!context) {
-    throw new Error("useLiveChat must be used within a LiveChatProvider")
+    return { openChat: () => {}, closeChat: () => {}, isOpen: false }
   }
   return context
 }
@@ -51,36 +50,66 @@ const KNOWLEDGE_BASE = [
 
 function findAnswer(query: string): string {
   const lowerQuery = query.toLowerCase()
-
   for (const item of KNOWLEDGE_BASE) {
     if (item.keywords.some(keyword => lowerQuery.includes(keyword))) {
       return item.answer
     }
   }
-
   return "I'm not sure about that specific question. For personalized assistance, please email our support team at support@technova.com and we'll be happy to help! 📧"
 }
 
 const BOT_AVATAR = "/bot.jpg"
+const STORAGE_KEY = "technova-chat-messages"
+
+// Quick reply suggestions
+const QUICK_REPLIES = [
+  "How do I reset my password?",
+  "How can I invite team members?",
+  "What file types are supported?",
+  "Talk to a human",
+]
+
+// Format time for display
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
 
 // Global floating chat widget with context provider
 export function FloatingLiveChat({ children }: { children?: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false)
+  const [isMinimized, setIsMinimized] = useState(false)
+  const [hasUnread, setHasUnread] = useState(false)
+  const [showQuickReplies, setShowQuickReplies] = useState(true)
 
-  const openChat = () => setIsOpen(true)
+  const openChat = () => { setIsOpen(true); setIsMinimized(false); setHasUnread(false) }
   const closeChat = () => setIsOpen(false)
-  const [messages, setMessages] = useState<Message[]>([
-    {
+
+  // Load messages from session storage
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const stored = sessionStorage.getItem(STORAGE_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        return parsed.map((m: Message) => ({ ...m, timestamp: new Date(m.timestamp) }))
+      }
+    } catch { /* ignore */ }
+    return [{
       id: "welcome",
-      role: "assistant",
-      content: "Hi there! 👋 I'm your Technova support assistant. How can I help you today?",
+      role: "assistant" as const,
+      content: "Hi there! 👋 I'm Nova, your Technova support assistant. How can I help you today?",
       timestamp: new Date(),
-    },
-  ])
+    }]
+  })
+
   const [input, setInput] = useState("")
   const [isTyping, setIsTyping] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Save messages to session storage
+  useEffect(() => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages))
+  }, [messages])
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -89,18 +118,32 @@ export function FloatingLiveChat({ children }: { children?: React.ReactNode }) {
 
   // Focus input when chat opens
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !isMinimized) {
       setTimeout(() => inputRef.current?.focus(), 100)
     }
+  }, [isOpen, isMinimized])
+
+  // Escape key to close
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) {
+        setIsOpen(false)
+      }
+    }
+    window.addEventListener("keydown", handleEscape)
+    return () => window.removeEventListener("keydown", handleEscape)
   }, [isOpen])
 
-  const sendMessage = async () => {
-    if (!input.trim()) return
+  const sendMessage = async (text?: string) => {
+    const messageText = text || input.trim()
+    if (!messageText) return
+
+    setShowQuickReplies(false)
 
     const userMessage: Message = {
       id: Date.now().toString(),
       role: "user",
-      content: input.trim(),
+      content: messageText,
       timestamp: new Date(),
     }
 
@@ -108,11 +151,10 @@ export function FloatingLiveChat({ children }: { children?: React.ReactNode }) {
     setInput("")
     setIsTyping(true)
 
-    // Re-focus input after sending
     setTimeout(() => inputRef.current?.focus(), 50)
 
-    // Simulate AI thinking delay
-    await new Promise((resolve) => setTimeout(resolve, 800 + Math.random() * 700))
+    // Simulate AI thinking delay (variable based on response length)
+    await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 800))
 
     const answer = findAnswer(userMessage.content)
 
@@ -126,7 +168,11 @@ export function FloatingLiveChat({ children }: { children?: React.ReactNode }) {
     setIsTyping(false)
     setMessages((prev) => [...prev, assistantMessage])
 
-    // Re-focus input after bot responds
+    // Show unread indicator if minimized
+    if (isMinimized) {
+      setHasUnread(true)
+    }
+
     setTimeout(() => inputRef.current?.focus(), 50)
   }
 
@@ -137,106 +183,166 @@ export function FloatingLiveChat({ children }: { children?: React.ReactNode }) {
     }
   }
 
+  const lastMessage = messages[messages.length - 1]
+
   return (
     <LiveChatContext.Provider value={{ openChat, closeChat, isOpen }}>
       {children}
-      {/* Floating Button */}
+
+      {/* Floating Button with notification badge */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (isOpen && !isMinimized) {
+            setIsOpen(false)
+          } else {
+            openChat()
+          }
+        }}
         className={cn(
-          "fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center",
-          "bg-primary text-primary-foreground hover:scale-110 hover:shadow-xl",
-          isOpen && "rotate-90"
+          "fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center group",
+          "bg-gradient-to-br from-primary to-primary/80 text-primary-foreground hover:shadow-xl hover:shadow-primary/25",
+          "hover:scale-105 active:scale-95",
+          isOpen && !isMinimized && "scale-0 opacity-0"
         )}
         aria-label={isOpen ? "Close chat" : "Open chat"}
       >
-        {isOpen ? (
-          <IconX className="h-6 w-6" />
-        ) : (
-          <IconMessageCircle className="h-6 w-6" />
+        <IconMessageCircle className="h-6 w-6 group-hover:scale-110 transition-transform" />
+        {hasUnread && (
+          <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 border-2 border-background animate-pulse" />
         )}
+        {/* Pulse ring effect */}
+        <span className="absolute inset-0 rounded-full bg-primary animate-ping opacity-20" />
       </button>
 
+      {/* Minimized Preview Bar */}
+      {isOpen && isMinimized && (
+        <button
+          onClick={() => { setIsMinimized(false); setHasUnread(false) }}
+          className="fixed bottom-6 right-6 z-50 w-[320px] bg-background border rounded-2xl shadow-2xl p-3 flex items-center gap-3 hover:shadow-xl transition-all animate-in slide-in-from-bottom-2 duration-200"
+        >
+          <div className="relative flex-shrink-0">
+            <Avatar className="h-10 w-10 border-2 border-primary/20">
+              <AvatarImage src={BOT_AVATAR} />
+              <AvatarFallback className="bg-primary text-primary-foreground">
+                <IconRobot className="h-5 w-5" />
+              </AvatarFallback>
+            </Avatar>
+            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-green-500 border-2 border-background" />
+          </div>
+          <div className="flex-1 min-w-0 text-left">
+            <p className="font-medium text-sm">Nova</p>
+            <p className="text-xs text-muted-foreground truncate">
+              {lastMessage?.content.slice(0, 40)}...
+            </p>
+          </div>
+          {hasUnread && (
+            <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+          )}
+        </button>
+      )}
+
       {/* Chat Window */}
-      {isOpen && (
-        <div className="fixed bottom-24 right-6 z-50 w-[380px] h-[500px] bg-background border rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 duration-300">
-          {/* Header */}
-          <div className="flex items-center gap-3 p-4 border-b bg-primary/5 flex-shrink-0">
+      {isOpen && !isMinimized && (
+        <div className="fixed bottom-6 right-6 z-50 w-[380px] h-[550px] bg-background border rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-5 zoom-in-95 duration-300">
+          {/* Header with gradient */}
+          <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border-b flex-shrink-0">
             <div className="relative">
-              <Avatar className="h-10 w-10 border-2 border-primary/20">
+              <Avatar className="h-11 w-11 border-2 border-primary/20 ring-2 ring-primary/10 ring-offset-2 ring-offset-background">
                 <AvatarImage src={BOT_AVATAR} />
-                <AvatarFallback className="bg-primary text-primary-foreground">
+                <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground">
                   <IconRobot className="h-5 w-5" />
                 </AvatarFallback>
               </Avatar>
               <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-green-500 border-2 border-background" />
             </div>
             <div className="flex-1">
-              <h3 className="font-semibold">Live Support</h3>
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                Online now
+              <h3 className="font-semibold text-base">Nova</h3>
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                Always online
               </p>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setIsOpen(false)}
-            >
-              <IconX className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 hover:bg-muted"
+                onClick={() => setIsMinimized(true)}
+                title="Minimize"
+              >
+                <span className="h-0.5 w-4 bg-current rounded" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => setIsOpen(false)}
+                title="Close"
+              >
+                <IconX className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
-          {/* Messages Area - Fixed height with overflow scroll */}
-          <div className="flex-1 overflow-y-auto p-4 min-h-0">
-            <div className="flex flex-col gap-4">
-              {messages.map((message) => (
+          {/* Messages Area */}
+          <div className="flex-1 overflow-y-auto p-4 min-h-0 bg-gradient-to-b from-muted/20 to-transparent">
+            <div className="flex flex-col gap-3">
+              {messages.map((message, index) => (
                 <div
                   key={message.id}
                   className={cn(
-                    "flex gap-3 max-w-[85%]",
+                    "flex gap-2.5 max-w-[88%] animate-in fade-in-0 slide-in-from-bottom-2 duration-300",
                     message.role === "user" ? "ml-auto flex-row-reverse" : ""
                   )}
+                  style={{ animationDelay: index === messages.length - 1 ? "0ms" : "0ms" }}
                 >
-                  <Avatar className="h-8 w-8 flex-shrink-0">
-                    {message.role === "assistant" ? (
-                      <>
-                        <AvatarImage src={BOT_AVATAR} />
-                        <AvatarFallback className="bg-primary text-primary-foreground">
-                          <IconRobot className="h-4 w-4" />
-                        </AvatarFallback>
-                      </>
-                    ) : (
-                      <AvatarFallback className="bg-muted">
-                        <IconUser className="h-4 w-4" />
+                  {message.role === "assistant" && (
+                    <Avatar className="h-7 w-7 flex-shrink-0 mt-0.5">
+                      <AvatarImage src={BOT_AVATAR} />
+                      <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground text-xs">
+                        <IconRobot className="h-3.5 w-3.5" />
                       </AvatarFallback>
-                    )}
-                  </Avatar>
-                  <div
-                    className={cn(
-                      "rounded-2xl px-4 py-2 text-sm",
-                      message.role === "user"
-                        ? "bg-primary text-primary-foreground rounded-br-md"
-                        : "bg-muted rounded-bl-md"
-                    )}
-                  >
-                    {message.content}
+                    </Avatar>
+                  )}
+                  <div className="flex flex-col gap-1">
+                    <div
+                      className={cn(
+                        "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+                        message.role === "user"
+                          ? "bg-gradient-to-br from-primary to-primary/90 text-primary-foreground rounded-br-md shadow-sm"
+                          : "bg-muted/80 rounded-bl-md border border-border/50"
+                      )}
+                    >
+                      {message.content}
+                    </div>
+                    <span className={cn(
+                      "text-[10px] text-muted-foreground/60 px-1",
+                      message.role === "user" ? "text-right" : "text-left"
+                    )}>
+                      {formatTime(message.timestamp)}
+                    </span>
                   </div>
+                  {message.role === "user" && (
+                    <Avatar className="h-7 w-7 flex-shrink-0 mt-0.5">
+                      <AvatarFallback className="bg-muted text-muted-foreground text-xs">
+                        <IconUser className="h-3.5 w-3.5" />
+                      </AvatarFallback>
+                    </Avatar>
+                  )}
                 </div>
               ))}
 
               {/* Typing indicator */}
               {isTyping && (
-                <div className="flex gap-3 max-w-[85%]">
-                  <Avatar className="h-8 w-8 flex-shrink-0">
+                <div className="flex gap-2.5 max-w-[88%] animate-in fade-in-0 slide-in-from-bottom-2 duration-200">
+                  <Avatar className="h-7 w-7 flex-shrink-0">
                     <AvatarImage src={BOT_AVATAR} />
-                    <AvatarFallback className="bg-primary text-primary-foreground">
-                      <IconRobot className="h-4 w-4" />
+                    <AvatarFallback className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground text-xs">
+                      <IconRobot className="h-3.5 w-3.5" />
                     </AvatarFallback>
                   </Avatar>
-                  <div className="bg-muted rounded-2xl rounded-bl-md px-4 py-3">
-                    <div className="flex gap-1">
+                  <div className="bg-muted/80 rounded-2xl rounded-bl-md px-4 py-3 border border-border/50">
+                    <div className="flex gap-1.5 items-center">
                       <span className="h-2 w-2 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: "0ms" }} />
                       <span className="h-2 w-2 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: "150ms" }} />
                       <span className="h-2 w-2 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: "300ms" }} />
@@ -245,33 +351,49 @@ export function FloatingLiveChat({ children }: { children?: React.ReactNode }) {
                 </div>
               )}
 
-              {/* Scroll anchor */}
+              {/* Quick Replies - Show only after welcome message */}
+              {showQuickReplies && messages.length === 1 && !isTyping && (
+                <div className="flex flex-wrap gap-2 mt-2 animate-in fade-in-0 slide-in-from-bottom-2 duration-300 delay-500">
+                  {QUICK_REPLIES.map((reply) => (
+                    <button
+                      key={reply}
+                      onClick={() => sendMessage(reply)}
+                      className="text-xs px-3 py-1.5 rounded-full border border-primary/30 text-primary hover:bg-primary/10 hover:border-primary/50 transition-colors"
+                    >
+                      {reply}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div ref={messagesEndRef} />
             </div>
           </div>
 
-          {/* Input Area - Fixed at bottom */}
-          <div className="p-4 border-t bg-background flex-shrink-0">
-            <div className="flex gap-2">
-              <Input
+          {/* Input Area */}
+          <div className="p-4 border-t bg-background/80 backdrop-blur-sm flex-shrink-0">
+            <div className="flex gap-2 items-center">
+              <input
                 ref={inputRef}
+                type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Type your message..."
                 disabled={isTyping}
-                className="flex-1"
+                className="flex-1 px-4 py-2.5 rounded-full border border-input bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:opacity-50 transition-all"
               />
               <Button
-                onClick={sendMessage}
+                onClick={() => sendMessage()}
                 disabled={!input.trim() || isTyping}
                 size="icon"
+                className="h-10 w-10 rounded-full bg-gradient-to-br from-primary to-primary/80 hover:opacity-90 shadow-sm disabled:opacity-50"
               >
                 <IconSend className="h-4 w-4" />
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground mt-2 text-center">
-              Powered by Technova AI
+            <p className="text-[10px] text-muted-foreground/60 mt-2 text-center">
+              Powered by Technova AI • Press Esc to close
             </p>
           </div>
         </div>
@@ -279,4 +401,3 @@ export function FloatingLiveChat({ children }: { children?: React.ReactNode }) {
     </LiveChatContext.Provider>
   )
 }
-
