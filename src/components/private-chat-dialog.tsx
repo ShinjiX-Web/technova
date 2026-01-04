@@ -17,6 +17,7 @@ import { ReactionPicker } from "./reaction-picker"
 import { MessageReactions } from "./message-reactions"
 import { MediaPicker } from "./media-picker"
 import { playNotificationSound } from "@/lib/notification-sounds"
+import { useTypingIndicator, TypingDots } from "./typing-indicator"
 import Swal from "sweetalert2"
 
 export interface PrivateMessage {
@@ -79,13 +80,21 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
   const getSwalTheme = () => ({ background: isDark ? "#171717" : "#ffffff", color: isDark ? "#ffffff" : "#171717" })
 
   const getInitials = (name: string) => name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+  const getMemberId = () => member?.user_id || member?.id
+
+  // Typing indicator for private chat - unique channel per conversation
+  const conversationId = user && member ? [user.id, getMemberId()].sort().join("-") : ""
+  const { typingUsers, sendTyping } = useTypingIndicator(
+    conversationId ? `private-chat-${teamOwnerId}-${conversationId}` : "",
+    user?.id || "",
+    user?.name || user?.email?.split("@")[0] || "User",
+    user?.avatar
+  )
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString)
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   }
-
-  const getMemberId = () => member?.user_id || member?.id
 
   // Delete individual message
   const deleteMessage = async (messageId: string) => {
@@ -216,6 +225,9 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
     if ((!newMessage.trim() && !fileUrl) || !user || !member) return
     const memberId = getMemberId()
 
+    // Stop typing indicator when sending
+    sendTyping(false)
+
     setIsLoading(true)
     const messageText = newMessage.trim()
     try {
@@ -286,6 +298,17 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       sendMessage()
+    }
+  }
+
+  // Handle input change with typing indicator
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setNewMessage(value)
+
+    // Broadcast typing status
+    if (value.trim()) {
+      sendTyping(true)
     }
   }
 
@@ -535,6 +558,14 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
           )}
         </div>
 
+        {/* Typing indicator */}
+        {typingUsers.length > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground border-t bg-muted/30">
+            <span>{member.chat_nickname || member.name.split(" ")[0]} is typing</span>
+            <TypingDots />
+          </div>
+        )}
+
         {/* Reply preview */}
         {replyTo && (
           <div className="border-t px-4 py-2 bg-muted/30 flex items-center gap-2">
@@ -578,7 +609,7 @@ export function PrivateChatPanel({ member, teamOwnerId, onBack, currentThemeClas
             <Input
               ref={inputRef}
               value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder="Type a message..."
               disabled={isLoading || isRecording}

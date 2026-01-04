@@ -56,6 +56,7 @@ import { MessageReactions } from "@/components/message-reactions"
 import { MediaPicker } from "@/components/media-picker"
 import { NotificationSoundSettings } from "@/components/notification-sound-settings"
 import { playNotificationSound } from "@/lib/notification-sounds"
+import { useTypingIndicator, TypingDots } from "@/components/typing-indicator"
 
 // Chat background themes with better light mode support
 const CHAT_THEMES = [
@@ -167,6 +168,15 @@ export default function TeamChatPage() {
   // Dark mode for Swal
   const isDark = document.documentElement.classList.contains("dark")
   const getSwalTheme = () => ({ background: isDark ? "#171717" : "#ffffff", color: isDark ? "#ffffff" : "#171717" })
+
+  // Typing indicator hook for team chat
+  const displayName = chatSettings?.nickname || user?.name || user?.email?.split("@")[0] || "User"
+  const { typingUsers, sendTyping } = useTypingIndicator(
+    ownerId ? `team-chat-${ownerId}` : "",
+    user?.id || "",
+    displayName,
+    user?.avatar
+  )
 
   // Load custom background from localStorage
   useEffect(() => {
@@ -399,15 +409,18 @@ export default function TeamChatPage() {
   const sendMessage = async (fileUrl?: string, fileName?: string, fileType?: string) => {
     if ((!newMessage.trim() && !fileUrl) || !user || !ownerId || isBlocked) return
 
+    // Stop typing indicator when sending
+    sendTyping(false)
+
     setIsLoading(true)
     const messageText = newMessage.trim()
-    const displayName = chatSettings?.nickname || user.name || user.email?.split("@")[0] || "User"
+    const senderDisplayName = chatSettings?.nickname || user.name || user.email?.split("@")[0] || "User"
 
     try {
       const { data, error } = await supabase.from("team_messages").insert({
         owner_id: ownerId,
         sender_id: user.id,
-        sender_name: displayName,
+        sender_name: senderDisplayName,
         sender_email: user.email || "",
         sender_avatar: user.avatar || null,
         message: messageText || (fileName ? `Shared a file: ${fileName}` : ""),
@@ -899,10 +912,15 @@ export default function TeamChatPage() {
 
   const mentionSuggestions = getMentionSuggestions()
 
-  // Handle input change with mention detection
+  // Handle input change with mention detection and typing indicator
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     setNewMessage(value)
+
+    // Broadcast typing status
+    if (value.trim()) {
+      sendTyping(true)
+    }
 
     // Detect @ mentions
     const cursorPos = e.target.selectionStart || 0
@@ -1245,6 +1263,28 @@ export default function TeamChatPage() {
                 {isBlocked && (
                   <div className="border-t p-4 bg-red-500/10 text-center">
                     <p className="text-sm text-red-500">You have been blocked from sending messages in this chat.</p>
+                  </div>
+                )}
+
+                {/* Typing indicator */}
+                {typingUsers.length > 0 && (
+                  <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground border-t bg-muted/30">
+                    <div className="flex -space-x-2">
+                      {typingUsers.slice(0, 3).map((u) => (
+                        <Avatar key={u.userId} className="h-5 w-5 border-2 border-background">
+                          <AvatarImage src={u.userAvatar} />
+                          <AvatarFallback className="text-[8px]">{getInitials(u.userName)}</AvatarFallback>
+                        </Avatar>
+                      ))}
+                    </div>
+                    <span>
+                      {typingUsers.length === 1
+                        ? `${typingUsers[0].userName.split(" ")[0]} is typing`
+                        : typingUsers.length === 2
+                        ? `${typingUsers[0].userName.split(" ")[0]} and ${typingUsers[1].userName.split(" ")[0]} are typing`
+                        : `${typingUsers[0].userName.split(" ")[0]} and ${typingUsers.length - 1} others are typing`}
+                    </span>
+                    <TypingDots />
                   </div>
                 )}
 
